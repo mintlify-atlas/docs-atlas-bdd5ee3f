@@ -1,0 +1,95 @@
+---
+title: "Synapse Interchain Network: optimistic messaging"
+description: "Learn how the Synapse Interchain Network uses optimistic proof-of-stake to route signed attestations across chains and execute messages securely."
+---
+
+The Synapse Interchain Network (SIN) is an optimistic proof-of-stake messaging system that enables smart contracts to send and receive messages across EVM-compatible chains. Off-chain agents sign and relay cryptographic attestations while an on-chain fraud window gives participants time to challenge invalid state before any message is executed. The result is a trust-minimized channel between arbitrary chains without relying on a single trusted relayer.
+
+## How it works
+
+A message travels through three logical chain roles before it reaches its recipient:
+
+- **Origin** — The chain where a message is first dispatched. The `Origin.sol` contract accepts the message and emits it with an incrementing nonce.
+- **Summit** (SynChain) — The coordination hub. Guards and Notaries post Snapshots here; the contract stores Snapshot Roots that prove message inclusion across many origin chains simultaneously.
+- **Destination** — The target chain. Once a Notary submits an Attestation that has been accepted by `Destination.sol`, the optimistic timer starts. After the period elapses, an Executor can call `Execute` and deliver the message to its recipient contract.
+
+<Note>
+  The Summit chain is the single chain that hosts the `Summit.sol` contract. Origin and Destination roles can be played by any other supported EVM chain.
+</Note>
+
+## Message lifecycle
+
+<Steps>
+  <Step title="Dispatch">
+    A user or contract calls `sendBaseMessage` on the origin chain's `Origin.sol`. The contract stores the message and assigns it a nonce.
+  </Step>
+  <Step title="Guard snapshot">
+    A Guard observes the new origin state (which covers all messages up to nonce N) and submits a Snapshot to Summit.
+  </Step>
+  <Step title="Notary snapshot">
+    A Notary sees the Guard-submitted states on Summit, bundles them into its own Snapshot, and submits it to Summit as well. This produces a Snapshot Root — a Merkle root of all included states.
+  </Step>
+  <Step title="Attestation to destination">
+    A Notary submits an Attestation derived from the Snapshot Root to the `Destination.sol` contract on the target chain. The Destination records this attestation and starts the optimistic timer.
+  </Step>
+  <Step title="Execution">
+    After `OptimisticSeconds` have elapsed and no fraud report has been accepted, the Executor verifies a Merkle proof for the message and calls `Execute` on `Destination.sol`, which delivers the payload to the recipient contract.
+  </Step>
+</Steps>
+
+## Optimistic fraud window
+
+Every message carries an `OptimisticSeconds` value set by the sender. This is the minimum number of seconds that must pass between attestation acceptance on the Destination and message execution. During this window, Guards actively verify submitted states and can initiate slashing for provably invalid attestations. Only after the window closes without a successful fraud report can the Executor deliver the message.
+
+<Warning>
+  Messages cannot be executed before their optimistic period has fully elapsed, even if all agents behave honestly. Design your application's UX around this expected latency.
+</Warning>
+
+## Off-chain agents
+
+Three types of agents participate in every message's lifecycle. All are implemented in the `agents/` module and share a common configuration schema.
+
+<CardGroup cols={3}>
+  <Card title="Notary" icon="pen-nib" href="/interchain/agents">
+    Scans origin chains for messages, signs attestations, and posts them to the AttestationCollector and Destination contracts. Each Notary is assigned to a specific `domain_id`.
+  </Card>
+  <Card title="Guard" icon="shield" href="/interchain/agents">
+    Polls origin states, submits Snapshots to Summit, and verifies states submitted by Notaries. A Guard operates across all domains (`domain_id: 0`).
+  </Card>
+  <Card title="Executor" icon="bolt" href="/interchain/agents">
+    Streams logs via Scribe, builds Merkle trees, waits for the optimistic period to expire, and calls `Execute` on the Destination contract.
+  </Card>
+</CardGroup>
+
+## Core contracts package
+
+The Solidity contracts used by SIN are published to GitHub Packages as `@synapsecns/contracts-core`. Configure your `.npmrc` to resolve the `@synapsecns` scope from the GitHub registry:
+
+```
+@synapsecns:registry=https://npm.pkg.github.com
+```
+
+Then install:
+
+```bash
+npm i @synapsecns/contracts-core
+```
+
+See the [contracts reference](/interchain/contracts) for a breakdown of every contract category and guidance on building client contracts that receive cross-chain messages.
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Agents" icon="robot" href="/interchain/agents">
+    Run and test the Notary, Guard, and Executor processes.
+  </Card>
+  <Card title="Contracts" icon="file-code" href="/interchain/contracts">
+    Explore the Solidity contract categories and build your own message recipient.
+  </Card>
+  <Card title="Deployment" icon="cloud-upload" href="/interchain/deployment">
+    Deploy agents to Kubernetes with the official Helm chart.
+  </Card>
+  <Card title="Scribe" icon="scroll" href="/services/scribe">
+    The log-streaming service that Executors and Guards depend on.
+  </Card>
+</CardGroup>

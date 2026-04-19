@@ -1,0 +1,203 @@
+---
+title: "Deploying interchain agents to Kubernetes"
+description: "Deploy SIN agents to Kubernetes with the official Helm chart. Bundles MySQL, OmniRPC, Scribe, and Jaeger as optional sub-charts and documents startup ordering."
+---
+
+The `charts/agents` Helm chart packages all three SIN agents — Notary, Guard, and Executor — alongside their runtime dependencies into a single deployable unit. The chart is tested in CI and can be validated locally before shipping to a cluster.
+
+## Docker image
+
+The agents binary is built as a statically linked Linux/AMD64 binary using goreleaser (`.goreleaser.yml` in `agents/`). The resulting artifact is packaged into a minimal `gcr.io/distroless/static` image for a reduced attack surface:
+
+```dockerfile
+FROM gcr.io/distroless/static:latest
+
+LABEL org.label-schema.name="ghcr.io/synapsecns/sanguine/agents"
+
+USER nonroot:nonroot
+WORKDIR /app
+COPY --chown=nonroot:nonroot agents /app/agents
+
+ENTRYPOINT ["/app/agents"]
+```
+
+Published images are tagged by commit SHA and semantic version:
+
+| Tag | When to use |
+|-----|-------------|
+| `ghcr.io/synapsecns/sanguine/agents:latest` | Latest release |
+| `ghcr.io/synapsecns/sanguine/agents:<sha>` | Pin to a specific commit |
+| `ghcr.io/synapsecns/sanguine/agents:<tag>` | Pin to a semantic version tag |
+
+The Helm chart defaults to a specific commit SHA (`image.tag` in `values.yaml`). Override this for production deployments.
+
+## Chart dependencies
+
+The `agents` chart declares the following sub-chart dependencies:
+
+| Dependency | Default enabled | Purpose |
+|------------|----------------|---------|
+| `mysql` (Bitnami 9.3.2) | `true` | Persistent storage for agent state |
+| `omnirpc` | `true` | RPC proxy for on-chain contract calls |
+| `scribe` | `true` | Log streaming for the Executor and Guard |
+| `jaeger` | `true` | Distributed tracing for agent metrics |
+
+Disable any dependency you are providing externally:
+
+```yaml
+# values.yaml overrides
+mysql:
+  enabled: false   # use an external MySQL instance
+
+scribe:
+  enabled: false   # use an existing Scribe deployment
+```
+
+## Deploying
+
+<Steps>
+  <Step title="Resolve chart dependencies">
+    From `sanguine/charts/agents/`, fetch the sub-charts:
+
+    ```bash
+    helm dependency update .
+    ```
+  </Step>
+  <Step title="Prepare your values override">
+    Create a `my-values.yaml` with at minimum your agent config files and signer keys. The chart mounts them from ConfigMaps defined in `notary_files`, `guard_files`, and the executor file keys.
+
+    ```yaml
+    notary:
+      enabled: true
+      args:
+        - notary-run
+        - --config=/config/notary_config1.yaml
+        - --metrics-port=5080
+        - --scribe-type=remote
+        - --scribe-port=80
+        - --scribe-url=executor-scribe.$(POD_NAMESPACE)
+
+    guard:
+      enabled: true
+      args:
+        - guard-run
+        - --config=/config/guard_config.yaml
+        - --metrics-port=5082
+    ```
+  </Step>
+  <Step title="Install the chart">
+    ```bash
+    helm install agents . \
+      --namespace interchain \
+      --create-namespace \
+      --values my-values.yaml
+    ```
+  </Step>
+  <Step title="Verify rollout">
+    ```bash
+    kubectl rollout status deployment/agents-notary -n interchain
+    kubectl rollout status deployment/agents-guard  -n interchain
+    kubectl rollout status deployment/agents-executor -n interchain
+    ```
+  </Step>
+</Steps>
+
+## Executor deployment modes
+
+The Executor chart ships three deployment templates that correspond to how Scribe is configured. Choose one by setting `executor.type`:
+
+<Tabs>
+  <Tab title="remote-fresh (default)">
+    Connects to an in-cluster Scribe deployment that starts indexing from the configured `start_block`. Best for new deployments where no historical Scribe data exists.
+
+    ```yaml
+    executor:
+      type: "remote-fresh"
+    ```
+
+    The Executor pod waits for OmniRPC, MySQL, and the `executor-scribe` service to become available before starting.
+  </Tab>
+  <Tab title="remote-existing">
+    Connects to an external Scribe instance (e.g. `https://scribe.interoperability.institute`) that already has historical data indexed. Use this when bootstrapping a new Executor against an existing indexer.
+
+    ```yaml
+    executor:
+      type: "remote-existing"
+    ```
+  </Tab>
+  <Tab title="embedded">
+    Starts an embedded Scribe within the Executor pod itself. The Scribe configuration is inlined in the Executor config file under `embedded_scribe_config`. Suitable for testing and smaller deployments.
+
+    ```yaml
+    executor:
+      type: "embedded"
+    ```
+  </Tab>
+</Tabs>
+
+## Agent startup ordering
+
+Each agent pod uses `initContainers` to wait for its dependencies before the main process starts. The ordering is:
+
+<AccordionGroup>
+  <Accordion title="Notary startup order">
+    1. Wait for `agents-omnirpc` on port 80
+    2. Wait for `agents-mysql` on port 3306
+    3. Wait for `executor-scribe` on port 80 (remote Scribe mode)
+    4. Start the Notary process
+  </Accordion>
+  <Accordion title="Guard startup order">
+    1. Wait for `agents-omnirpc` on port 80
+    2. Start the Guard process
+  </Accordion>
+  <Accordion title="Executor startup order (remote-fresh)">
+    1. Wait for `agents-omnirpc` on port 80
+    2. Wait for `agents-mysql` on port 3306
+    3. Create the `agents` MySQL database if it does not exist
+    4. Wait for `executor-scribe` on port 80
+    5. Start the Executor process
+  </Accordion>
+</AccordionGroup>
+
+## Environment variables
+
+All agent pods are configured with the following environment variables by default:
+
+| Variable | Default value | Purpose |
+|----------|--------------|---------|
+| `GOLOG_LOG_FMT` | `json` | Structured JSON log output |
+| `GOLOG_LOG_LEVEL` | `error` | Log verbosity |
+| `GOMEMLIMIT` | `2GiB` | Go runtime memory limit |
+| `METRICS_HANDLER` | `jaeger` | Tracing backend |
+| `JAEGER_ENDPOINT` | `http://agents-devnet-jaeger-collector:14268/api/traces` | Jaeger collector URL |
+
+Override these in your `values.yaml` under the `definitions.env` anchor.
+
+## Local chart testing
+
+From `sanguine/charts/`:
+
+```bash
+# Lint all charts
+make lint
+
+# Run a test install against a local cluster
+make test-install
+```
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Agents" icon="robot" href="/interchain/agents">
+    Learn how to configure and run agents locally.
+  </Card>
+  <Card title="Scribe" icon="scroll" href="/services/scribe">
+    The log-streaming service bundled as a chart dependency.
+  </Card>
+  <Card title="OmniRPC" icon="network-wired" href="/services/omnirpc">
+    The RPC proxy bundled as a chart dependency.
+  </Card>
+  <Card title="Overview" icon="map" href="/interchain/overview">
+    High-level architecture of the Synapse Interchain Network.
+  </Card>
+</CardGroup>

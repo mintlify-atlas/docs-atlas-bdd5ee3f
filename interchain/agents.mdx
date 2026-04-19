@@ -1,0 +1,187 @@
+---
+title: "Interchain agents: Notary, Guard, and Executor"
+description: "Configure and run the Notary, Guard, and Executor agents that power the Synapse Interchain Network. Covers YAML config schema, CLI flags, and Go test commands."
+---
+
+The Synapse Interchain Network relies on three types of off-chain agents to sign, verify, and execute messages between chains. Each agent is a Go binary inside the `agents/` module that shares a common CLI entrypoint and YAML configuration format. Agents communicate with on-chain contracts via [OmniRPC](/services/omnirpc) and stream indexed logs from [Scribe](/services/scribe).
+
+## Agent types
+
+<CardGroup cols={3}>
+  <Card title="Notary" icon="pen-nib">
+    Assigned to a single domain (`domain_id > 0`). Scans origin chains for new messages, builds Snapshots from observed States, and posts both Snapshots and Attestations to the Summit and Destination contracts.
+  </Card>
+  <Card title="Guard" icon="shield">
+    Monitors all domains (`domain_id: 0`). Polls origin states, submits Snapshots to Summit, verifies Notary-submitted states, and submits fraud reports if an invalid attestation is detected.
+  </Card>
+  <Card title="Executor" icon="bolt">
+    Streams origin and destination logs via a gRPC connection to Scribe. Builds local Merkle trees, waits for attestations to pass their optimistic period, and calls `Execute` on `Destination.sol`.
+  </Card>
+</CardGroup>
+
+## Directory structure
+
+The `agents/` module is organized into the following directories:
+
+| Directory | Purpose |
+|-----------|---------|
+| `agents/` | Individual agent implementations (`executor/`, `guard/`, `notary/`) |
+| `cmd/` | CLI command definitions for all agents |
+| `config/` | Shared configuration types (`AgentConfig`, `DomainConfig`) |
+| `contracts/` | Go interfaces for the on-chain messaging contracts |
+| `domains/` | Chain-specific adapters |
+| `types/` | Common type definitions shared across agents |
+
+## Configuration
+
+All agents share the `AgentConfig` schema, serialized as YAML. Key fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `domain_id` | `uint32` | The domain this agent is assigned to. Guards use `0` (all domains); Notaries use a specific chain domain ID. |
+| `summit_domain_id` | `uint32` | Domain ID of the chain hosting the `Summit.sol` contract. |
+| `domains` | map | Per-chain configuration (`DomainConfig`) keyed by a user-defined name. |
+| `base_omnirpc_url` | `string` | Base URL for OmniRPC (without the `/confirmations` suffix). |
+| `refresh_interval_seconds` | `uint32` | How frequently the agent polls for new state. Cannot be `0`. |
+| `unbonded_signer` | object | Signer used to submit transactions (not bonded capital). |
+| `bonded_signer` | object | Signer associated with the agent's bonded stake. |
+
+Each entry in `domains` is a `DomainConfig`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `domain_id` | `uint32` | Chain/domain identifier. Must be non-zero. |
+| `type` | `string` | Chain type, e.g. `EVM`. |
+| `required_confirmations` | `uint32` | Block confirmations before a log is trusted. |
+| `origin_address` | `string` | Address of `Origin.sol` on this chain. Required. |
+| `destination_address` | `string` | Address of `Destination.sol` on this chain. Required. |
+| `summit_address` | `string` | Address of `Summit.sol`. Required on the Summit chain. |
+| `light_manager_address` | `string` | Required on non-Summit chains when `summit_address` is absent. |
+| `bonding_manager_address` | `string` | Required on the Summit chain. |
+
+<Tip>
+  A configuration file that omits `refresh_interval_seconds` or sets it to `0` will fail validation at startup. Always set an explicit non-zero value.
+</Tip>
+
+## Running agents
+
+All agents share the same CLI binary. From `sanguine/agents/`, run:
+
+```bash
+go run main.go
+```
+
+This exposes the unified command line for all three agents. Each agent also has its own `main/` entrypoint inside its directory.
+
+<Tabs>
+  <Tab title="Notary">
+    Navigate to `sanguine/agents/agents/notary/main/` and run:
+
+    ```bash
+    go run main.go notary-run \
+      --config=/path/to/notary_config.yaml \
+      --metrics-port=5080 \
+      --scribe-type=remote \
+      --scribe-port=80 \
+      --scribe-url=<scribe-host>
+    ```
+
+    The Notary requires a `domain_id > 0` in its config (it operates on a single assigned domain).
+  </Tab>
+  <Tab title="Guard">
+    Navigate to `sanguine/agents/agents/guard/main/` and run:
+
+    ```bash
+    go run main.go guard-run \
+      --config=/path/to/guard_config.yaml \
+      --metrics-port=5082
+    ```
+
+    The Guard's config sets `domain_id: 0` to indicate it watches all domains.
+  </Tab>
+  <Tab title="Executor">
+    Navigate to `sanguine/agents/agents/executor/main/` and run with a **remote** Scribe:
+
+    ```bash
+    go run main.go executor-run \
+      --config=/path/to/executor_config.yaml \
+      --db=sqlite \
+      --path=/path/to/database \
+      --scribe-type=remote \
+      --scribe-port=<port> \
+      --scribe-grpc-port=<grpc-port> \
+      --scribe-url=<url>
+    ```
+
+    Or with an **embedded** Scribe (Scribe config must be included in the Executor config):
+
+    ```bash
+    go run main.go executor-run \
+      --config=/path/to/executor_config.yaml \
+      --db=sqlite \
+      --path=/path/to/database \
+      --scribe-type=embedded \
+      --scribe-db=sqlite \
+      --scribe-path=/path/to/scribe-database
+    ```
+  </Tab>
+</Tabs>
+
+## Executor internals
+
+The Executor is composed of four concurrent functions:
+
+<AccordionGroup>
+  <Accordion title="streamLogs">
+    Opens a gRPC connection to Scribe and buffers logs for the Origin and Destination contracts on every configured chain. Verifies log order, which is critical for correct Merkle tree construction. If the Executor restarts unexpectedly, it rebuilds the Merkle tree from the database up to the last recorded log before resuming the stream.
+  </Accordion>
+  <Accordion title="receiveLogs">
+    Consumes logs from the `streamLogs` channel and parses them into either `Message` events from `Origin.sol` or `Attestation` events from `Destination.sol`. Stores parsed data and updates the local Merkle tree.
+  </Accordion>
+  <Accordion title="setMinimumTime">
+    Scans the database for messages that do not yet have an execution time set. For each such message it checks whether a matching attestation has been accepted on the Destination, then records the unix timestamp after which the message's `OptimisticSeconds` will have elapsed.
+  </Accordion>
+  <Accordion title="executeExecutable">
+    Iterates messages that have a minimum execution time set. For any message whose time has passed, it verifies the optimistic period, constructs a Merkle proof, and calls `Execute` on `Destination.sol`.
+  </Accordion>
+</AccordionGroup>
+
+## Testing
+
+The test suite uses `SimulatedBackendsTestSuite` (defined in `agents/testutil/simulated_backends_suite.go`), which provides scaffolded Summit, Origin, and Destination chain backends for each test. The suites `TestExecutorSuite`, `TestGuardSuite`, `TestNotarySuite`, `ExampleAgentSuite`, and `AgentsIntegrationSuite` all embed this base suite.
+
+<CodeGroup>
+
+```bash all agent tests
+cd agents
+go test -v ./...
+```
+
+```bash single suite (e.g. executor)
+cd agents/executor
+go test -v
+```
+
+```bash single test (e.g. TestVerifyState)
+cd agents/executor
+go test -v -run TestExecutorSuite/TestVerifyState
+```
+
+</CodeGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Deployment" icon="cloud-upload" href="/interchain/deployment">
+    Run agents in Kubernetes using the official Helm chart.
+  </Card>
+  <Card title="Contracts" icon="file-code" href="/interchain/contracts">
+    Explore the Solidity contracts agents interact with.
+  </Card>
+  <Card title="Scribe" icon="scroll" href="/services/scribe">
+    The log-streaming dependency for Executor and Guard.
+  </Card>
+  <Card title="OmniRPC" icon="network-wired" href="/services/omnirpc">
+    The RPC proxy agents use to reach on-chain contracts.
+  </Card>
+</CardGroup>

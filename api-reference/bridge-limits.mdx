@@ -1,0 +1,76 @@
+---
+title: "Bridge transfer limits: GET /bridgeLimits"
+description: "Retrieve the minimum and maximum token amounts that can be bridged for a specific token pair and chain combination using GET /bridgeLimits."
+---
+
+Before presenting a bridge form to users, call `GET /bridgeLimits` to learn the floor and ceiling amounts that the protocol will accept for a given token pair. This prevents users from submitting transactions that will fail on-chain due to amount violations. Both values are returned as strings in the origin token's native decimal units. When limits cannot be computed for a route — for example, because liquidity data is unavailable — the fields are returned as `null`, and you should gate the UI accordingly.
+
+```
+GET https://api.synapseprotocol.com/bridgeLimits
+```
+
+## Query parameters
+
+<ParamField query="fromChain" type="integer" required>
+  Chain ID of the source chain.
+</ParamField>
+
+<ParamField query="toChain" type="integer" required>
+  Chain ID of the destination chain.
+</ParamField>
+
+<ParamField query="fromToken" type="string" required>
+  Contract address of the token on the source chain.
+</ParamField>
+
+<ParamField query="toToken" type="string" required>
+  Contract address of the token on the destination chain.
+</ParamField>
+
+## Response fields
+
+<ResponseField name="minOriginAmount" type="string | null">
+  The smallest amount (in origin token native decimals) that can be bridged on this route. Returns `null` if the minimum limit is not available.
+</ResponseField>
+
+<ResponseField name="maxOriginAmount" type="string | null">
+  The largest amount (in origin token native decimals) that can be bridged on this route. Returns `null` if the maximum limit is not available.
+</ResponseField>
+
+## Example request
+
+```bash
+curl "https://api.synapseprotocol.com/bridgeLimits\
+?fromChain=1\
+&toChain=42161\
+&fromToken=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\
+&toToken=0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+```
+
+## Example response
+
+```json
+{
+  "minOriginAmount": "4",
+  "maxOriginAmount": "999600"
+}
+```
+
+## Error response
+
+A `400` is returned when one or more parameters are invalid:
+
+```json
+{
+  "error": {
+    "value": "999",
+    "message": "Unsupported fromChain",
+    "field": "fromChain",
+    "location": "query"
+  }
+}
+```
+
+<Note>
+  Both `minOriginAmount` and `maxOriginAmount` are denominated in the **origin token's native decimals**. For a 6-decimal token like USDC, a `minOriginAmount` of `"4"` equals 0.000004 USDC. Divide by `10^decimals` before displaying values to users.
+</Note>

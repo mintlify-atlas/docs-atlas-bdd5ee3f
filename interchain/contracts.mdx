@@ -1,0 +1,192 @@
+---
+title: "Core contracts: Solidity package reference"
+description: "Explore the @synapsecns/contracts-core Solidity package, its contract categories, and how to build a client contract that receives cross-chain messages."
+---
+
+`@synapsecns/contracts-core` contains the Solidity contracts that implement the Synapse Interchain Network messaging system. The package is built with Foundry and published to GitHub Packages. It provides everything needed to deploy SIN infrastructure and to write application contracts that send and receive cross-chain messages.
+
+## Installation
+
+Configure your `.npmrc` to resolve `@synapsecns` packages from the GitHub registry:
+
+```
+@synapsecns:registry=https://npm.pkg.github.com
+```
+
+Then install:
+
+```bash
+npm i @synapsecns/contracts-core
+```
+
+## Contract categories
+
+The `contracts/` directory is organized into the following subdirectories:
+
+<CardGroup cols={2}>
+  <Card title="base/" icon="layer-group">
+    Base contracts of the protocol that other contracts inherit from.
+  </Card>
+  <Card title="client/" icon="code">
+    Client contracts for callers of the messaging system, including `BaseClient.sol`, `MessageRecipient.sol`, `PingPongClient.sol`, and `TestClient.sol`.
+  </Card>
+  <Card title="events/" icon="bell">
+    Event type definitions emitted by Origin, Destination, and Summit contracts.
+  </Card>
+  <Card title="hubs/" icon="circle-nodes">
+    Hub contracts that coordinate state across chains.
+  </Card>
+  <Card title="inbox/" icon="inbox">
+    Inbox contracts that receive and validate incoming messages.
+  </Card>
+  <Card title="interfaces/" icon="plug">
+    Solidity interfaces including `IMessageRecipient` and `InterfaceOrigin`.
+  </Card>
+  <Card title="libs/" icon="book">
+    Library contracts for types, encoding, and error definitions used throughout the protocol.
+  </Card>
+  <Card title="manager/" icon="sliders">
+    Manager contracts including the BondingManager and LightManager.
+  </Card>
+</CardGroup>
+
+Top-level contracts in `contracts/` are the three core protocol contracts:
+
+| Contract | Role |
+|----------|------|
+| `Origin.sol` | Accepts outbound messages from users and emits them with an incrementing nonce. |
+| `Destination.sol` | Receives Notary attestations, starts the optimistic timer, and executes verified messages. |
+| `Summit.sol` | Coordination hub on the SynChain where Guards and Notaries post Snapshots. |
+
+## Building a client contract
+
+To receive cross-chain messages, your contract must implement the `IMessageRecipient` interface. The abstract `MessageRecipient.sol` contract handles all input validation and is the recommended base for new client contracts.
+
+### IMessageRecipient interface
+
+Your recipient contract is called by `Destination.sol` via `receiveBaseMessage`:
+
+```solidity
+function receiveBaseMessage(
+    uint32 origin_,       // chain ID of the origin chain
+    uint32 nonce,         // nonce of the message on the origin
+    bytes32 sender,       // address of the sender on the origin chain
+    uint256 proofMaturity, // seconds elapsed since attestation was accepted
+    uint32 version,       // message version
+    bytes memory content  // encoded message payload
+) external payable;
+```
+
+### Extending MessageRecipient
+
+`MessageRecipient.sol` performs validation (caller must be `Destination`, nonce/sender/proofMaturity must be non-zero) before invoking `_receiveBaseMessageUnsafe` on your implementation. Extend it and implement only the business logic:
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+import {MessageRecipient} from "@synapsecns/contracts-core/contracts/client/MessageRecipient.sol";
+
+contract MyRecipient is MessageRecipient {
+    constructor(address origin_, address destination_)
+        MessageRecipient(origin_, destination_) {}
+
+    function _receiveBaseMessageUnsafe(
+        uint32 origin_,
+        uint32 nonce,
+        bytes32 sender,
+        uint256 proofMaturity,
+        uint32 version,
+        bytes memory content
+    ) internal override {
+        // your cross-chain message handling logic here
+    }
+}
+```
+
+To send a message from your contract, call the inherited `_sendBaseMessage` helper, which routes through the local `Origin.sol`.
+
+<Note>
+  `TestClient.sol` in `contracts/client/` is a full reference example you can study alongside `PingPongClient.sol`.
+</Note>
+
+## PingPongClient example
+
+`PingPongClient.sol` is deployed by default in the devnet and demonstrates a round-trip cross-chain ping/pong pattern. It extends `MessageRecipient` and tracks three counters:
+
+| Counter | Meaning |
+|---------|---------|
+| `pingsSent` | Number of Ping messages dispatched |
+| `pingsReceived` | Number of Ping messages received (each triggers a Pong reply) |
+| `pongsReceived` | Number of Pong messages received (should equal `pingsSent` once all messages are delivered) |
+
+The entry point is `doPings(uint16 pingCount, uint32 destination_, address recipient, uint16 counter)`, which sends one or more pings to a `PingPongClient` on another chain.
+
+## Running a devnet
+
+<Steps>
+  <Step title="Start the devnet">
+    From `packages/contracts-core/`, run:
+
+    ```bash
+    make devnet-up
+    ```
+  </Step>
+  <Step title="Deploy contracts">
+    ```bash
+    make devnet-deploy
+    ```
+
+    This deploys `PingPongClient.sol` (and the core protocol contracts) to the local chains.
+  </Step>
+  <Step title="Access RPC endpoints">
+    Each chain is reachable at:
+
+    ```
+    http://localhost:9001/rpc/{chain_id}
+    ```
+
+    For example, chain 42 is at `http://localhost:9001/rpc/42`.
+  </Step>
+  <Step title="Send a test message">
+    Use `cast` to send a ping from chain 42 to chain 44:
+
+    ```bash
+    cast send 0x521F44132489CDD54c9ceC8167CfC377CbAEa351 \
+      --rpc-url http://localhost:9001/rpc/42 \
+      --private-key 0x526db1890baf94e82162f17f25ad769eb7f981272d8d99c527ea1af443c2d0cc \
+      "doPing(uint32,address,uint16)" \
+      44 0x521F44132489CDD54c9ceC8167CfC377CbAEa351 1
+    ```
+  </Step>
+  <Step title="Verify delivery via Scribe">
+    Query chain 44 logs at the Scribe GraphQL endpoint (`http://localhost:9002/graphiql`):
+
+    ```graphql
+    {
+      logs(chain_id: 44, page: 1) {
+        topics
+        block_number
+        contract_address
+      }
+    }
+    ```
+
+    A successful round-trip shows topic `0x0a72872b9cfe43d6c13b13553f28d4879e427f3b456545649fd0761fdcbe0311` — the `PingPongClient` `Pong` event.
+  </Step>
+</Steps>
+
+<Tip>
+  The Scribe GraphQL playground is available at `http://localhost:9002/graphiql` when the devnet is running. See [Scribe](/services/scribe) for more details on querying logs.
+</Tip>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Agents" icon="robot" href="/interchain/agents">
+    Run the off-chain agents that interact with these contracts.
+  </Card>
+  <Card title="Deployment" icon="cloud-upload" href="/interchain/deployment">
+    Deploy agents and their dependencies to Kubernetes.
+  </Card>
+</CardGroup>

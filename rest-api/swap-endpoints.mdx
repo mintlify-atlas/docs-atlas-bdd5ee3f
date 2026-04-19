@@ -1,0 +1,342 @@
+---
+title: 'Swap & Token Endpoints — Synapse REST API'
+description: 'Fetch same-chain swap quotes, build swap transactions, list bridgeable destination tokens, and retrieve the full Synapse token list per chain.'
+keywords: ['synapse', 'swap', 'token list', 'rest api', 'swap quote', 'swapTxInfo', 'destinationTokens', 'tokenlist']
+---
+
+The swap and token endpoints handle same-chain token swaps and the token metadata that powers bridging UIs. Use `/swap/v2` for new integrations — it accepts native decimal amounts and can return calldata directly. The token list endpoints let you enumerate everything the protocol supports.
+
+<Note>
+  `/swap/v2` is the preferred route for new integrations. The legacy `/swap` and `/swapTxInfo` endpoints use human-readable amounts and are considered deprecated.
+</Note>
+
+---
+
+## GET /swap/v2
+
+Get a quote for swapping one token for another on the same chain. Amounts are expressed in the token's native decimals. Optionally include `toRecipient` to receive ready-to-broadcast `callData`.
+
+### Parameters
+
+<ParamField query="chainId" type="integer" required>
+  Chain ID where the swap will occur.
+</ParamField>
+
+<ParamField query="fromToken" type="string" required>
+  Contract address of the token to swap from.
+</ParamField>
+
+<ParamField query="fromAmount" type="string" required>
+  Amount to swap in the token's native decimals.
+</ParamField>
+
+<ParamField query="toToken" type="string" required>
+  Contract address of the token to swap to.
+</ParamField>
+
+<ParamField query="toRecipient" type="string">
+  Recipient address. When provided, `callData` is included in the response.
+</ParamField>
+
+<ParamField query="slippage" type="number">
+  Maximum allowed slippage percentage (0–100). Defaults to `0.5`.
+</ParamField>
+
+### Response
+
+<ResponseField name="id" type="string">Unique quote identifier.</ResponseField>
+<ResponseField name="chainId" type="integer">Chain ID of the swap.</ResponseField>
+<ResponseField name="fromToken" type="string">Input token address.</ResponseField>
+<ResponseField name="fromAmount" type="string">Input amount in native decimals.</ResponseField>
+<ResponseField name="toToken" type="string">Output token address.</ResponseField>
+<ResponseField name="expectedToAmount" type="string">Expected output amount in native decimals.</ResponseField>
+<ResponseField name="minToAmount" type="string">Minimum output amount after slippage in native decimals.</ResponseField>
+<ResponseField name="routerAddress" type="string">Router contract address to call.</ResponseField>
+<ResponseField name="moduleNames" type="array">Swap module names used for the route.</ResponseField>
+<ResponseField name="callData" type="object">
+  Transaction data. Only present when `toRecipient` is supplied.
+
+  <Expandable title="callData fields">
+    <ResponseField name="to" type="string">Contract address to call.</ResponseField>
+    <ResponseField name="data" type="string">Encoded transaction calldata.</ResponseField>
+    <ResponseField name="value" type="string">Native token amount to send with the transaction.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```bash
+curl "https://api.synapseprotocol.com/swap/v2?chainId=1&fromToken=0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48&fromAmount=1000000&toToken=0xdac17f958d2ee523a2206206994597c13d831ec7"
+```
+
+```json
+{
+  "id": "01920c87-7f14-7cdf-90e1-e13b2d4af55f",
+  "chainId": 1,
+  "fromToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+  "fromAmount": "1000000",
+  "toToken": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+  "expectedToAmount": "999746386",
+  "minToAmount": "994747654",
+  "routerAddress": "0x512000a034E154908Efb1eC48579F4ffDb000512",
+  "moduleNames": ["DefaultPools"],
+  "callData": null
+}
+```
+
+---
+
+## GET /swap
+
+<Warning>
+  This is the legacy swap endpoint. New integrations should use `/swap/v2`, which accepts amounts in native token decimals and can return calldata inline.
+</Warning>
+
+Returns a detailed swap quote for exchanging tokens on the same chain. Amounts use human-readable format.
+
+### Parameters
+
+<ParamField query="chain" type="integer" required>
+  Chain ID where the swap will occur.
+</ParamField>
+
+<ParamField query="fromToken" type="string" required>
+  Address of the token to swap from.
+</ParamField>
+
+<ParamField query="toToken" type="string" required>
+  Address of the token to swap to.
+</ParamField>
+
+<ParamField query="amount" type="number" required>
+  Amount to swap (human-readable).
+</ParamField>
+
+<ParamField query="address" type="string" required>
+  Address of the user performing the swap.
+</ParamField>
+
+### Response
+
+<ResponseField name="routerAddress" type="string">Router contract address.</ResponseField>
+<ResponseField name="maxAmountOut" type="string">Maximum output amount as a human-readable string.</ResponseField>
+<ResponseField name="query" type="object">
+  Swap query parameters for the router contract.
+
+  <Expandable title="query fields">
+    <ResponseField name="swapAdapter" type="string">Swap adapter address.</ResponseField>
+    <ResponseField name="tokenOut" type="string">Output token address.</ResponseField>
+    <ResponseField name="minAmountOut" type="object">Minimum output amount as a BigNumber `{ type, hex }`.</ResponseField>
+    <ResponseField name="deadline" type="object">Transaction deadline as a BigNumber `{ type, hex }`.</ResponseField>
+    <ResponseField name="rawParams" type="string">Encoded swap parameters.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```bash
+curl "https://api.synapseprotocol.com/swap?chain=1&fromToken=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48&toToken=0xdAC17F958D2ee523a2206206994597C13D831ec7&amount=1000&address=0xcc78d2f004c9de9694ff6a9bbdee4793d30f3842"
+```
+
+```json
+{
+  "routerAddress": "0x7E7A0e201FD38d3ADAA9523Da6C109a07118C96a",
+  "maxAmountOut": "999.746386",
+  "query": {
+    "swapAdapter": "0x7E7A0e201FD38d3ADAA9523Da6C109a07118C96a",
+    "tokenOut": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "minAmountOut": { "type": "BigNumber", "hex": "0x3b96eb52" },
+    "deadline": { "type": "BigNumber", "hex": "0x66ecb470" },
+    "rawParams": "0x..."
+  }
+}
+```
+
+---
+
+## GET /swapTxInfo
+
+<Warning>
+  Deprecated. Use `/swap/v2` with the `toRecipient` parameter to obtain calldata inline.
+</Warning>
+
+Returns encoded transaction calldata for executing a swap. Takes the same parameters as `/swap` and returns the transaction object ready to broadcast.
+
+### Parameters
+
+<ParamField query="chain" type="integer" required>
+  Chain ID where the swap will occur.
+</ParamField>
+
+<ParamField query="fromToken" type="string" required>
+  Address of the token to swap from.
+</ParamField>
+
+<ParamField query="toToken" type="string" required>
+  Address of the token to swap to.
+</ParamField>
+
+<ParamField query="amount" type="number" required>
+  Amount to swap (human-readable).
+</ParamField>
+
+<ParamField query="address" type="string" required>
+  Ethereum address of the user performing the swap.
+</ParamField>
+
+### Response
+
+<ResponseField name="data" type="string">Encoded transaction calldata.</ResponseField>
+<ResponseField name="to" type="string">Contract address to call.</ResponseField>
+<ResponseField name="value" type="object">Native token amount to send as a BigNumber `{ type, hex }` object.</ResponseField>
+
+### Example
+
+```bash
+curl "https://api.synapseprotocol.com/swapTxInfo?chain=1&fromToken=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48&toToken=0xdAC17F958D2ee523a2206206994597C13D831ec7&amount=1000&address=0xcc78d2f004c9de9694ff6a9bbdee4793d30f3842"
+```
+
+---
+
+## GET /destinationTokens
+
+Returns all tokens available on destination chains that a given source token can be bridged to. Useful for populating the destination token selector in a bridge UI.
+
+### Parameters
+
+<ParamField query="fromChain" type="integer" required>
+  Source chain ID.
+</ParamField>
+
+<ParamField query="fromToken" type="string" required>
+  Token contract address on the source chain.
+</ParamField>
+
+### Response
+
+Returns an array of destination token objects.
+
+<ResponseField name="symbol" type="string">Token symbol (e.g., `USDC`).</ResponseField>
+<ResponseField name="chainId" type="string">Chain ID where the destination token is available.</ResponseField>
+<ResponseField name="address" type="string">Token contract address on that chain.</ResponseField>
+
+### Example
+
+```bash
+curl "https://api.synapseprotocol.com/destinationTokens?fromChain=1&fromToken=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+```
+
+```json
+[
+  {
+    "symbol": "USDC",
+    "chainId": "1",
+    "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+  },
+  {
+    "symbol": "USDT",
+    "chainId": "42161",
+    "address": "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9"
+  },
+  {
+    "symbol": "crvUSD",
+    "chainId": "8453",
+    "address": "0x417Ac0e078398C154EdFadD9Ef675d30Be60Af93"
+  }
+]
+```
+
+---
+
+## GET /tokenlist
+
+Returns the complete list of tokens supported by the protocol, including their addresses and decimals on every chain. The response is keyed by token symbol.
+
+This endpoint takes no parameters.
+
+### Response
+
+The response is a map from token symbol to token metadata.
+
+<ResponseField name="[symbol]" type="object">
+  Token metadata object.
+
+  <Expandable title="Token object fields">
+    <ResponseField name="addresses" type="object">Map of chain ID to contract address on that chain.</ResponseField>
+    <ResponseField name="decimals" type="object">Map of chain ID to token decimal count on that chain.</ResponseField>
+    <ResponseField name="symbol" type="string">Token ticker symbol.</ResponseField>
+    <ResponseField name="name" type="string">Full token name.</ResponseField>
+    <ResponseField name="swapableType" type="string">Swap pool category (e.g., `USD`, `ETH`).</ResponseField>
+    <ResponseField name="color" type="string">UI display color hint.</ResponseField>
+    <ResponseField name="priorityRank" type="integer">Sort rank for display ordering.</ResponseField>
+    <ResponseField name="routeSymbol" type="string">Symbol used internally by the router.</ResponseField>
+    <ResponseField name="imgUrl" type="string">URL of the token's icon image.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```bash
+curl "https://api.synapseprotocol.com/tokenlist"
+```
+
+```json
+{
+  "USDC": {
+    "addresses": {
+      "1": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+      "10": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85"
+    },
+    "decimals": { "1": 6, "10": 6 },
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "swapableType": "USD",
+    "color": "blue",
+    "priorityRank": 100,
+    "routeSymbol": "USDC",
+    "imgUrl": "https://example.com/usdc.svg"
+  }
+}
+```
+
+---
+
+## GET /synapseTxId
+
+Converts an origin chain transaction hash into the Synapse protocol transaction ID. The Synapse transaction ID is required to check bridge status via `/bridgeTxStatus`.
+
+### Parameters
+
+<ParamField query="originChainId" type="integer" required>
+  Chain ID where the bridge transaction was initiated.
+</ParamField>
+
+<ParamField query="bridgeModule" type="string" required>
+  Bridge module used for the transaction. One of: `SynapseRFQ`, `SynapseBridge`, `SynapseCCTP`.
+</ParamField>
+
+<ParamField query="txHash" type="string" required>
+  Transaction hash on the origin chain.
+</ParamField>
+
+### Response
+
+<ResponseField name="synapseTxId" type="string">
+  The Synapse protocol transaction ID. Pass this to `/bridgeTxStatus` to poll for completion.
+</ResponseField>
+
+### Example
+
+```bash
+curl "https://api.synapseprotocol.com/synapseTxId?originChainId=1&bridgeModule=SynapseRFQ&txHash=0x4eff784e85df5265dcc8e3c30b9df4b5c8a0c940300f6d8ad7ed737e9beb6fab"
+```
+
+```json
+{
+  "synapseTxId": "0x812516c5477aeeb4361ecbdd561abcd10f779a0fce22bad13635b8cae088760a"
+}
+```
+
+<Tip>
+  The `synapseTxId` returned here is the input you need for `GET /bridgeTxStatus`. The two endpoints are designed to be used together.
+</Tip>

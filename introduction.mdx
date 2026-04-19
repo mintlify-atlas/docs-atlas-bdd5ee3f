@@ -1,0 +1,76 @@
+---
+title: "Synapse Protocol: Cross-Chain Interoperability Platform"
+description: "Synapse Protocol is a cross-chain bridge and messaging network for 19+ EVM chains, offering a TypeScript SDK, REST API, React widget, and off-chain agents."
+---
+
+Synapse Protocol is a cross-chain interoperability platform and bridge that lets you move tokens and send messages across 19+ EVM-compatible networks. The [sanguine monorepo](https://github.com/synapsecns/sanguine) contains everything you need to integrate Synapse into your application: Solidity contracts, a TypeScript SDK, a production REST API, an embeddable React widget, off-chain agents, and infrastructure services.
+
+## Bridge modules
+
+Synapse routes bridging requests through three distinct modules, each deployed at a consistent address across all supported chains.
+
+<CardGroup cols={3}>
+  <Card title="SynapseBridge" icon="bridge">
+    The original cross-chain liquidity and canonical token bridge. Deployed at `0x7E7A0e201FD38d3ADAA9523Da6C109a07118C96a` on all chains (except Blast).
+  </Card>
+  <Card title="SynapseCCTP" icon="circle-dollar-to-slot">
+    Slippage-free USDC bridging powered by Circle's Cross-Chain Transfer Protocol. Deployed at `0xd5a597d6e7ddf373a92C8f477DAAA673b0902F48` on all chains.
+  </Card>
+  <Card title="SynapseRFQ" icon="arrow-right-arrow-left">
+    A request-for-quote module enabling fast, competitive bridging via relayer auctions. Deployed at `0x00cD000000003f7F682BE4813200893d4e690000` on all chains.
+  </Card>
+</CardGroup>
+
+## Integration options
+
+<CardGroup cols={2}>
+  <Card title="TypeScript SDK" icon="npm" href="/sdk/quickstart">
+    Install `@synapsecns/sdk-router` for full programmatic control over bridge quotes, swap quotes, and transaction construction.
+  </Card>
+  <Card title="REST API" icon="globe" href="/rest-api/overview">
+    Call `https://api.synapseprotocol.com` over HTTP to get bridge quotes, limits, and transaction data without any SDK setup.
+  </Card>
+  <Card title="Bridge Widget" icon="puzzle-piece" href="/sdk/bridge-widget">
+    Drop the `@synapsecns/widget` React component into your dApp for a fully functional bridge UI with custom theming support.
+  </Card>
+  <Card title="Interchain Network" icon="network-wired" href="/interchain/overview">
+    Build on the Synapse Interchain Network (SIN) for trust-minimized optimistic proof-of-stake cross-chain messaging.
+  </Card>
+</CardGroup>
+
+## Key components
+
+<AccordionGroup>
+  <Accordion title="Bridge SDK (packages/sdk-router)">
+    The `@synapsecns/sdk-router` package is the TypeScript SDK for interacting with Synapse Protocol router contracts deployed on 19 chains. It handles bridge quotes, swap quotes, transaction construction, and transaction status tracking. The SDK abstracts away bridge module selection, optional on-chain swaps, and query object construction so you work with tokens and amounts directly.
+  </Accordion>
+  <Accordion title="REST API (packages/rest-api)">
+    The REST API at `https://api.synapseprotocol.com` provides HTTP endpoints for bridge quotes, bridge transaction info, swap quotes, destination token lookup, bridge limits, and token lists. It is documented with [Swagger](https://api.synapseprotocol.com/api-docs/) and is the easiest way to query routing data without JavaScript.
+  </Accordion>
+  <Accordion title="Bridge Widget (packages/widget)">
+    The `@synapsecns/widget` package is an embeddable React component that renders a fully operational bridge UI. It requires only a `web3Provider` and supports optional customization of chains, tokens, RPC endpoints, and visual theme. The widget supports React ≥ 17.0.1.
+  </Accordion>
+  <Accordion title="Off-chain Agents (agents/)">
+    The Agents are the off-chain components of the Synapse Interchain Network. They are responsible for signing, reporting, verifying, and executing messages across chains. The three agent roles are **Notary** (scans origin chains and signs attestations), **Guard** (posts attestations to the collector and destination), and **Executor** (verifies and executes cross-chain messages).
+  </Accordion>
+  <Accordion title="Services (services/)">
+    The repository includes several production services: **OmniRPC** (a latency-aware RPC load balancer that cross-verifies responses across multiple providers), **Scribe** (a multi-chain event indexer with GraphQL API), **CCTP Relayer** (facilitates permissionless CCTP bridging), and the **RFQ service** (powers the request-for-quote bridge module).
+  </Accordion>
+</AccordionGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    Learn how contracts, SDK, services, and agents fit together end-to-end.
+  </Card>
+  <Card title="SDK quickstart" icon="bolt" href="/sdk/quickstart">
+    Install the SDK and get your first bridge quote in minutes.
+  </Card>
+  <Card title="REST API overview" icon="code" href="/rest-api/overview">
+    Start querying bridge routes with plain HTTP.
+  </Card>
+  <Card title="Contributing" icon="code-pull-request" href="/contributing">
+    Learn how to contribute code to the sanguine monorepo.
+  </Card>
+</CardGroup>

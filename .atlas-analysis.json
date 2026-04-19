@@ -1,0 +1,124 @@
+{
+  "projectType": "infrastructure",
+  "projectName": "Synapse Protocol",
+  "projectDescription": "A cross-chain interoperability monorepo providing a bridge, SDK, REST API, off-chain agents, and supporting infrastructure for the Synapse interchain messaging network.",
+  "theme": "aspen",
+  "primaryColor": "#848c8e",
+  "lightColor": "#11161e",
+  "darkColor": "#cfd0d2",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "introduction",
+              "architecture",
+              "contributing"
+            ]
+          },
+          {
+            "group": "Bridge SDK",
+            "pages": [
+              "sdk/quickstart",
+              "sdk/bridging",
+              "sdk/swapping",
+              "sdk/bridge-widget"
+            ]
+          },
+          {
+            "group": "REST API",
+            "pages": [
+              "rest-api/overview",
+              "rest-api/bridge-endpoints",
+              "rest-api/swap-endpoints",
+              "rest-api/rfq-endpoints"
+            ]
+          },
+          {
+            "group": "Services",
+            "pages": [
+              "services/omnirpc",
+              "services/scribe",
+              "services/cctp-relayer",
+              "services/rfq-relayer"
+            ]
+          },
+          {
+            "group": "Interchain Network",
+            "pages": [
+              "interchain/overview",
+              "interchain/agents",
+              "interchain/contracts",
+              "interchain/deployment"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Bridge API",
+            "pages": [
+              "api-reference/bridge",
+              "api-reference/bridge-limits",
+              "api-reference/bridge-tx-info",
+              "api-reference/bridge-tx-status"
+            ]
+          },
+          {
+            "group": "Swap & Tokens API",
+            "pages": [
+              "api-reference/swap",
+              "api-reference/destination-tokens",
+              "api-reference/tokenlist"
+            ]
+          },
+          {
+            "group": "RFQ API",
+            "pages": [
+              "api-reference/rfq-quotes",
+              "api-reference/rfq-open-requests",
+              "api-reference/rfq-contracts"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Cross-chain bridge supporting 19+ chains via SynapseBridge, SynapseCCTP, and SynapseRFQ modules",
+    "TypeScript SDK (@synapsecns/sdk-router) for programmatic bridge and swap interactions",
+    "Embeddable React bridge widget (@synapsecns/widget) for dApp integration",
+    "REST API at api.synapseprotocol.com for bridge quotes, transaction info, and status",
+    "OmniRPC: latency-aware, multi-provider RPC load balancer with response verification",
+    "Scribe: multi-chain event indexing service with GraphQL and gRPC APIs",
+    "CCTP Relayer for permissionless Circle CCTP cross-chain USDC transfers",
+    "RFQ (Request-for-Quote) relayer and guard for fast, intent-based bridging",
+    "Synapse Interchain Network (SIN): optimistic proof-of-stake off-chain messaging agents",
+    "Helm charts for Kubernetes deployment of all services"
+  ],
+  "publicApiSurface": [
+    "SynapseSDK.allBridgeQuotes(originChainId, destChainId, tokenIn, tokenOut, amountIn)",
+    "SynapseSDK.bridge(addressTo, routerAddress, originChainId, destChainId, tokenIn, amountIn, originQuery, destQuery)",
+    "SynapseSDK.swap(chainId, to, token, amount, query)",
+    "SynapseSDK.getSynapseTxId(originChainId, moduleName, txHash)",
+    "SynapseSDK.getBridgeTxStatus(destChainId, moduleName, synapseTxId)",
+    "SynapseSDK.applyBridgeSlippage(moduleName, originQuery, destQuery, slipNumerator, slipDenominator)",
+    "Bridge widget: <Bridge web3Provider={...} customTheme={...} targetTokens={[...]} targetChainIds={[...]} />",
+    "REST API GET /bridge - get bridge quotes",
+    "REST API GET /bridge/v2 - get bridge quotes (v2)",
+    "REST API GET /bridgeTxInfo - get transaction calldata",
+    "REST API GET /bridgeTxStatus - check bridge tx completion",
+    "REST API GET /swap - get swap quotes",
+    "REST API GET /tokenlist - supported tokens per chain",
+    "REST API GET /destinationTokens - possible destination tokens",
+    "REST API GET /bridgeLimits - min/max bridgeable amounts",
+    "REST API GET /quotes - RFQ quotes",
+    "OmniRPC POST /rpc/{chainId} - proxied multi-confirmed RPC calls",
+    "Scribe GraphQL queries: lastIndexed, logsRange, blockTime, txSender"
+  ]
+}

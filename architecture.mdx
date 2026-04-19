@@ -1,0 +1,216 @@
+---
+title: "Synapse Protocol Architecture: Layers and Components"
+description: "How Synapse Protocol is structured: contracts, TypeScript SDK, REST API, React widget, Go services (OmniRPC, Scribe, CCTP, RFQ), and SIN off-chain agents."
+---
+
+Synapse Protocol is organized into five distinct layers that work together to power cross-chain bridging and messaging. On-chain contracts define the bridge logic; the TypeScript SDK and REST API expose that logic to application developers; the React widget packages it into an embeddable UI; and a set of Go services and off-chain agents handle infrastructure, indexing, and message execution.
+
+## Layer overview
+
+<CardGroup cols={2}>
+  <Card title="Contracts" icon="file-contract">
+    Solidity contracts defining bridge logic and interchain messaging, built with Foundry.
+  </Card>
+  <Card title="TypeScript SDK & API" icon="npm">
+    `@synapsecns/sdk-router` and the REST API at `api.synapseprotocol.com` for developer integrations.
+  </Card>
+  <Card title="Bridge Widget" icon="puzzle-piece">
+    `@synapsecns/widget`, an embeddable React component with full bridging UI.
+  </Card>
+  <Card title="Go Services & Agents" icon="server">
+    OmniRPC, Scribe, CCTP Relayer, RFQ service, and the Interchain Network off-chain agents.
+  </Card>
+</CardGroup>
+
+## On-chain contracts
+
+Two contract packages live in `packages/`:
+
+- **`packages/contracts-core`** — Core contracts for the Synapse Interchain Network, built with [Foundry](https://github.com/foundry-rs/foundry). These define the Summit, Origin, and Destination chain contract roles for optimistic interchain messaging.
+- **`packages/contracts-rfq`** — Contracts for the request-for-quote (RFQ) bridge module, which coordinates token bridging through relayer auctions.
+
+### Bridge module deployments
+
+The three bridge modules are deployed at consistent addresses across supported chains:
+
+| Module | Chains | Address |
+|---|---|---|
+| SynapseBridge | All (except Blast) | `0x7E7A0e201FD38d3ADAA9523Da6C109a07118C96a` |
+| SynapseBridge | Blast | `0x0000000000365b1d5B142732CF4d33BcddED21Fc` |
+| SynapseCCTP | All | `0xd5a597d6e7ddf373a92C8f477DAAA673b0902F48` |
+| SynapseRFQ | All | `0x00cD000000003f7F682BE4813200893d4e690000` |
+
+<Note>
+  The liquidity and bridge contracts are maintained in the separate [synapse-contracts](https://github.com/synapsecns/synapse-contracts) repository and are being migrated to this monorepo.
+</Note>
+
+## TypeScript SDK (`packages/sdk-router`)
+
+The `@synapsecns/sdk-router` package is the primary TypeScript interface for Synapse Protocol router contracts deployed on 19 chains. It handles:
+
+- **Bridge quotes** — `allBridgeQuotes()` returns a list of quotes sorted by best output across all three bridge modules.
+- **Swap quotes** — On-chain swap routing on a single chain.
+- **Transaction construction** — `bridge()` returns the `data`, `to`, and `value` fields needed to submit a transaction.
+- **Transaction tracking** — `getSynapseTxId()` and `getBridgeTxStatus()` let you poll bridge completion.
+
+The SDK abstracts away module selection, optional origin/destination chain swaps, and the internal `Query` object structure.
+
+```typescript
+import { SynapseSDK } from '@synapsecns/sdk-router'
+import { JsonRpcProvider } from '@ethersproject/providers'
+
+const synapseSDK = new SynapseSDK(
+  [1, 10, 42161],
+  [ethereumProvider, optimismProvider, arbitrumProvider]
+)
+```
+
+<Tip>
+  The SDK's default RFQ API endpoint is `https://rfq-api.omnirpc.io`. You can override this with the `RFQ_API_URL` environment variable.
+</Tip>
+
+## REST API (`packages/rest-api`)
+
+The REST API wraps the SDK in an HTTP service hosted at `https://api.synapseprotocol.com`. It exposes endpoints for bridge quotes, bridge transaction info, swap quotes, destination token lookup, and bridge limits. Full documentation is available in the [Swagger UI](https://api.synapseprotocol.com/api-docs/).
+
+```bash
+GET /bridge?fromChain=1&toChain=42161&fromToken=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48&toToken=0xaf88d065e77c8cC2239327C5EDb3A432268e5831&amount=100
+```
+
+<CardGroup cols={2}>
+  <Card title="REST API overview" icon="globe" href="/rest-api/overview">
+    HTTP endpoints for quotes and transaction data.
+  </Card>
+  <Card title="Bridge endpoints" icon="arrow-right-arrow-left" href="/rest-api/bridge-endpoints">
+    Detailed reference for bridge quote and transaction endpoints.
+  </Card>
+</CardGroup>
+
+## Bridge Widget (`packages/widget`)
+
+The `@synapsecns/widget` package is a React component (`>=17.0.1`) that renders a complete bridging UI. It requires only a `web3Provider` and supports optional customization of destination chains, token lists, RPC endpoints, and theme colors.
+
+```tsx
+import { Bridge } from '@synapsecns/widget'
+
+const MyApp = () => {
+  const web3Provider = new ethers.BrowserProvider(window.ethereum)
+  return <Bridge web3Provider={web3Provider} />
+}
+```
+
+<CardGroup cols={1}>
+  <Card title="Bridge Widget guide" icon="puzzle-piece" href="/sdk/bridge-widget">
+    Installation, props reference, and theme customization for the React widget.
+  </Card>
+</CardGroup>
+
+## Go infrastructure services
+
+Four Go services power the infrastructure layer:
+
+<Tabs>
+  <Tab title="OmniRPC">
+    **`services/omnirpc`** is a latency-aware RPC load balancer designed to reduce trust in any single RPC provider by verifying responses across multiple providers. For confirmable query types (e.g., `eth_getBalance` at a specific block), OmniRPC checks that N providers agree before returning a response. It is embedded in Synapse agents and also runs as a standalone service.
+
+    ```bash
+    # Query with 5-confirmation verification
+    curl http://localhost:5000/rpc/1
+    # or with a custom confirmation count
+    curl http://localhost:5000/confirmations/2/rpc/1
+    ```
+
+    <CardGroup cols={1}>
+      <Card title="OmniRPC service" icon="server" href="/services/omnirpc">
+        Configuration reference and deployment guide.
+      </Card>
+    </CardGroup>
+  </Tab>
+  <Tab title="Scribe">
+    **`services/scribe`** is a multi-chain indexing service. It takes a list of contracts specified by chain ID and stores logs, receipts, and transactions for every event from the contract's start block to the present, in a MySQL database. Scribe is currently indexing over 900 contracts across 18 chains and exposes a GraphQL API for querying the collected data.
+
+    ```bash
+    # Start the Scribe indexer
+    Scribe --config /path/to/config.yaml --db sqlite --path /path/to/db
+    # Start the GraphQL server
+    server --port 8080 --db sqlite --path /path/to/db
+    ```
+
+    <CardGroup cols={1}>
+      <Card title="Scribe service" icon="magnifying-glass" href="/services/scribe">
+        Configuration reference and GraphQL query guide.
+      </Card>
+    </CardGroup>
+  </Tab>
+  <Tab title="CCTP Relayer">
+    **`services/cctp-relayer`** works with the CCTP contracts to permissionlessly facilitate cross-chain, slippage-free transactions using Circle's [CCTP API](https://developers.circle.com/stablecoin/docs/cctp-getting-started). It powers the `SynapseCCTP` bridge module.
+
+    <CardGroup cols={1}>
+      <Card title="CCTP Relayer service" icon="circle-dollar-to-slot" href="/services/cctp-relayer">
+        Deployment and configuration for the CCTP relayer.
+      </Card>
+    </CardGroup>
+  </Tab>
+  <Tab title="RFQ Service">
+    **`services/rfq`** powers the `SynapseRFQ` bridge module. It coordinates token bridging via relayer auctions, where relayers compete to offer the best bridge quotes.
+
+    <CardGroup cols={1}>
+      <Card title="RFQ relayer service" icon="gavel" href="/services/rfq-relayer">
+        Deployment and configuration for the RFQ relayer.
+      </Card>
+    </CardGroup>
+  </Tab>
+</Tabs>
+
+## Interchain Network agents (`agents/`)
+
+The Agents are the off-chain components of the Synapse Interchain Network, an optimistic proof-of-stake interchain messaging network. They run as Go binaries and are responsible for signing, reporting, verifying, and executing messages across chains.
+
+<AccordionGroup>
+  <Accordion title="Notary">
+    Scans origin chains for new messages and signs attestations, then posts them to the AttestationCollector contract.
+  </Accordion>
+  <Accordion title="Guard">
+    Signs attestations and posts them to both the attestation collector and destination chain contracts.
+  </Accordion>
+  <Accordion title="Executor">
+    Responsible for verifying and executing cross-chain messages once the optimistic window has passed.
+  </Accordion>
+</AccordionGroup>
+
+All agents embed OmniRPC for reliable RPC access and share a common CLI entry point at `agents/main.go`.
+
+<CardGroup cols={2}>
+  <Card title="Interchain Network overview" icon="network-wired" href="/interchain/overview">
+    How the SIN messaging layer works.
+  </Card>
+  <Card title="Agents guide" icon="robot" href="/interchain/agents">
+    Running and configuring the Notary, Guard, and Executor agents.
+  </Card>
+</CardGroup>
+
+## How the pieces interact
+
+When a user bridges tokens through Synapse:
+
+<Steps>
+  <Step title="Quote">
+    The SDK or REST API queries all three bridge module contracts (`SynapseBridge`, `SynapseCCTP`, `SynapseRFQ`) for quotes and returns the best route.
+  </Step>
+  <Step title="Transaction submission">
+    The user submits a transaction to the selected bridge module contract on the origin chain. The SDK's `bridge()` method constructs the calldata.
+  </Step>
+  <Step title="Event indexing">
+    Scribe indexes the bridge event from the origin chain and makes it queryable via GraphQL.
+  </Step>
+  <Step title="Relaying / message execution">
+    Depending on the module: the CCTP Relayer relays the Circle attestation, the RFQ relayer fills the order, or the SIN agents sign and execute the interchain message.
+  </Step>
+  <Step title="Settlement">
+    Funds arrive on the destination chain. `getBridgeTxStatus()` or `GET /bridgeTxStatus` confirms completion.
+  </Step>
+</Steps>
+
+<Warning>
+  OmniRPC's response verification only applies to confirmable query types — calls using `"latest"` or `"pending"` block tags are forwarded to a single provider. See the [OmniRPC service docs](/services/omnirpc) for the full list.
+</Warning>

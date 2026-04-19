@@ -1,0 +1,218 @@
+---
+title: "Synapse Bridge Widget: Embed a Bridge UI in React"
+description: "Embed a cross-chain bridge in React with @synapsecns/widget. Customize RPCs, theme, token filters, and read user chain/token selections via useBridgeSelections."
+---
+
+The Synapse Bridge Widget is a React component that embeds a fully functional cross-chain bridge directly in your application. Beyond a `web3Provider`, no additional configuration is required to get started — the widget ships with built-in routes and token lists for all networks where the Synapse Protocol is active.
+
+## Installation
+
+The widget is published to [GitHub Packages](https://github.com/synapsecns/sanguine/packages). Add the GitHub registry entry to your `.npmrc` first:
+
+```bash .npmrc
+@synapsecns:registry=https://npm.pkg.github.com
+```
+
+Then install:
+
+<CodeGroup>
+
+```bash npm
+npm install @synapsecns/widget
+```
+
+```bash yarn
+yarn add @synapsecns/widget
+```
+
+</CodeGroup>
+
+<Note>
+  The widget requires `react` and `react-dom` `>=17.0.1` as peer dependencies.
+</Note>
+
+## Basic usage
+
+Import the `Bridge` component and pass a `web3Provider`. That is the only required prop.
+
+<Tabs>
+  <Tab title="ethers v6">
+    ```tsx
+    import { Bridge } from '@synapsecns/widget'
+    import { ethers } from 'ethers'
+
+    const MyApp = () => {
+      const web3Provider = new ethers.BrowserProvider(window.ethereum)
+
+      return <Bridge web3Provider={web3Provider} />
+    }
+    ```
+  </Tab>
+  <Tab title="ethers v5">
+    ```tsx
+    import { Bridge } from '@synapsecns/widget'
+    import { ethers } from 'ethers'
+
+    const MyApp = () => {
+      const web3Provider = new ethers.providers.Web3Provider(window.ethereum, 'any')
+
+      return <Bridge web3Provider={web3Provider} />
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Widget props
+
+| Prop                | Type          | Required | Default                     | Description                                                              |
+| ------------------- | ------------- | -------- | --------------------------- | ------------------------------------------------------------------------ |
+| `web3Provider`      | Web3Provider  | Yes      | —                           | Ethers v5 or v6 provider for wallet interactions.                        |
+| `customRpcs`        | CustomRpcs    | No       | Built-in fallback endpoints | Custom JSON-RPC endpoints keyed by chain ID.                             |
+| `customTheme`       | object        | No       | Light theme                 | Theme overrides including `bgColor` and CSS variables.                   |
+| `container`         | boolean       | No       | `false`                     | When `true`, the widget adjusts its width to fit its container element.  |
+| `targetChainIds`    | number[]      | No       | All supported chains        | Restricts destination chain options to the provided chain IDs.           |
+| `targetTokens`      | Token[]       | No       | All supported tokens        | Restricts destination token options to the provided tokens.              |
+| `protocolName`      | string        | No       | `'Target'`                  | Short name shown to users to identify your protocol.                     |
+| `hideConsoleErrors` | boolean       | No       | `false`                     | Suppresses SDK and widget `console.error` output in the browser.         |
+
+## Custom RPC endpoints
+
+The widget includes basic fallback RPC endpoints, but specifying your own is recommended for reliability and performance. Pass a `CustomRpcs` object with chain IDs as keys:
+
+```tsx
+import { Bridge, CustomRpcs } from '@synapsecns/widget'
+
+const customRpcs: CustomRpcs = {
+  1: 'https://ethereum.my-custom-rpc.com',
+  10: 'https://optimism.my-custom-rpc.com',
+  42161: 'https://arbitrum.my-custom-rpc.com',
+}
+
+const MyApp = () => {
+  const web3Provider = new ethers.BrowserProvider(window.ethereum)
+
+  return <Bridge web3Provider={web3Provider} customRpcs={customRpcs} />
+}
+```
+
+## Token and chain filtering
+
+Use `targetTokens` and `targetChainIds` to restrict which tokens and chains appear as bridging destinations. This is useful when your application only needs to support a specific asset or network.
+
+```tsx
+import { Bridge, ETH, USDC, USDT } from '@synapsecns/widget'
+
+const MyApp = () => {
+  const web3Provider = new ethers.BrowserProvider(window.ethereum)
+
+  return (
+    <Bridge
+      web3Provider={web3Provider}
+      targetTokens={[ETH, USDC, USDT]}
+      targetChainIds={[42161, 43114]}
+    />
+  )
+}
+```
+
+<Note>
+  Token names follow the widget package's naming convention. For example, USDC on Metis is exported as `METISUSDC`. See `src/constants/bridgeable.ts` in the package for the full token list.
+</Note>
+
+## Theme customization
+
+The widget accepts a `customTheme` prop with a `bgColor` shorthand for common modes, and a full set of CSS variables for fine-grained control.
+
+<Tabs>
+  <Tab title="Simple mode">
+    Pass `'dark'`, `'light'`, or a hex color to `bgColor`:
+
+    ```tsx
+    <Bridge
+      web3Provider={web3Provider}
+      customTheme={{ bgColor: 'dark' }}
+    />
+    ```
+  </Tab>
+  <Tab title="Full customization">
+    ```tsx
+    const customTheme = {
+      // Base color — generates the palette automatically
+      bgColor: '#08153a',
+
+      // Text and surface colors
+      '--synapse-text': 'white',
+      '--synapse-secondary': '#ffffffb3',
+      '--synapse-root': '#16182e',
+      '--synapse-surface': 'linear-gradient(90deg, #1e223de6, #262b47e6)',
+      '--synapse-border': 'transparent',
+
+      // Interactive states (use base colors by default)
+      '--synapse-focus': 'var(--synapse-secondary)',
+      '--synapse-select-bg': 'var(--synapse-root)',
+      '--synapse-select-text': 'var(--synapse-text)',
+      '--synapse-select-border': 'var(--synapse-border)',
+      '--synapse-button-bg': 'var(--synapse-surface)',
+      '--synapse-button-text': 'var(--synapse-text)',
+      '--synapse-button-border': 'var(--synapse-border)',
+
+      // Transaction progress indicators
+      '--synapse-progress': 'hsl(265deg 100% 65%)',
+      '--synapse-progress-flash': 'hsl(215deg 100% 65%)',
+      '--synapse-progress-success': 'hsl(120deg 100% 30%)',
+      '--synapse-progress-error': 'hsl(15deg 100% 65%)',
+    }
+
+    <Bridge web3Provider={web3Provider} customTheme={customTheme} />
+    ```
+  </Tab>
+</Tabs>
+
+## Container sizing
+
+Set `container={true}` to make the widget fill its parent element's width rather than using its default fixed width:
+
+```tsx
+<Bridge web3Provider={web3Provider} container={true} />
+```
+
+## useBridgeSelections hook
+
+The widget exports a `useBridgeSelections` hook that exposes the user's current chain and token selections. Use this to react to selection changes in your surrounding application.
+
+```typescript
+import { useBridgeSelections } from '@synapsecns/widget'
+
+const MyComponent = () => {
+  const {
+    originChain,
+    originToken,
+    destinationChain,
+    destinationToken,
+  } = useBridgeSelections()
+
+  // originChain / destinationChain: { id, name }
+  // originToken / destinationToken: { symbol, address }
+}
+```
+
+## Native token balance behavior
+
+For native source tokens (ETH, AVAX, MATIC), the widget shows a **Bridgeable** amount instead of the raw wallet balance. This value accounts for the network gas fee estimate and the bridge fee, so clicking it prefills a safe maximum that leaves room for transaction execution. While the bridgeable amount is being calculated, the control remains non-clickable and shows the standard balance display.
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="SDK quickstart" icon="bolt" href="/sdk/quickstart">
+    Install and initialize the Bridge SDK for programmatic use.
+  </Card>
+  <Card title="Cross-chain bridging" icon="arrow-right-arrow-left" href="/sdk/bridging">
+    Build bridge transactions directly with the SDK.
+  </Card>
+  <Card title="On-chain swapping" icon="arrows-rotate" href="/sdk/swapping">
+    Execute same-chain token swaps through Synapse routers.
+  </Card>
+  <Card title="Architecture overview" icon="map" href="/architecture">
+    Learn about the bridge modules and router contracts powering the widget.
+  </Card>
+</CardGroup>

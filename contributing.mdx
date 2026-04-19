@@ -1,0 +1,240 @@
+---
+title: "Contributing to Synapse Protocol Sanguine Monorepo"
+description: "Set up your dev environment, follow the two-branch Git workflow, build TypeScript packages, run Go tests, and open pull requests to the sanguine monorepo."
+---
+
+The sanguine repository welcomes contributions of all kinds — bug fixes, new features, documentation improvements, and new packages. Before you start, read this page to understand the branching strategy, merge rules, and local setup steps so your pull request moves through review smoothly.
+
+<Info>
+  Code style contributions should follow the [Uber Go Style Guide](https://github.com/uber-go/guide/blob/master/style.md) for Go code.
+</Info>
+
+## Branching strategy
+
+The repository uses a two-branch strategy:
+
+| Branch | Purpose |
+|---|---|
+| `master` | Primary development branch. All new features and bug fixes target this branch. |
+| `fe-release` | Production frontend branch. Always reflects what is deployed to production. |
+
+<Warning>
+  `master` should never be behind `fe-release`. The only exception is during an active hotfix to the production frontend.
+</Warning>
+
+### Merge strategies
+
+- **Squash merge into `master`** — All pull requests are squash merged to keep the commit history clean and make reverts straightforward. On rare occasions a regular merge is used when `master` needs a small set of commits from `fe-release` to avoid future merge conflicts.
+- **Regular merge into `fe-release`** — Changes from `master` are regularly merged into `fe-release`. The source branch of a merge into `fe-release` is always a release or hotfix branch, never `master` directly (to avoid accidentally deleting it).
+
+## Contribution scenarios
+
+<Tabs>
+  <Tab title="New feature">
+    Use this workflow for any new feature or bug fix that does not require an immediate frontend release.
+
+    <Steps>
+      <Step title="Create a feature branch from master">
+        ```bash
+        git checkout master && git pull
+        git checkout -b pkg/feature-name
+        ```
+        Use a descriptive branch name prefixed with the package you are working on (e.g. `sdk/add-rfq-support`, `services/omnirpc-timeout`).
+      </Step>
+      <Step title="Implement and commit your changes">
+        Make your changes with clear, concise commit messages. Commit regularly.
+      </Step>
+      <Step title="Push and open a pull request">
+        ```bash
+        git push -u origin pkg/feature-name
+        ```
+        Open a pull request against `master`. Use the default PR template and include a link to any related issue. If the PR is related to a Notion task, include the Notion ID at the **end** of the PR title (e.g. `Add RFQ support to SDK [SLT-143]`).
+      </Step>
+      <Step title="Sync with master if needed">
+        If `master` has moved ahead and you need its changes:
+        ```bash
+        git checkout master && git pull
+        git checkout pkg/feature-name
+        git merge master
+        ```
+        Alternatively, rebase if your branch has not yet been reviewed:
+        ```bash
+        git rebase -i master
+        ```
+      </Step>
+      <Step title="CI checks and review">
+        CI runs automatically on push. Fix any failures in your feature branch and push again. Once approved by at least one maintainer, the PR is **squash merged** into `master` and your branch is deleted.
+      </Step>
+    </Steps>
+  </Tab>
+  <Tab title="Frontend release">
+    Use this workflow to release the latest `master` changes to the production frontend.
+
+    <Steps>
+      <Step title="Create a release branch from fe-release">
+        ```bash
+        git checkout fe-release && git pull
+        # Date format is YYYY-MM-DD
+        git checkout -b release/date
+        ```
+      </Step>
+      <Step title="Merge master into your release branch">
+        ```bash
+        git checkout master && git pull
+        git checkout release/date
+        git merge master
+        ```
+        No merge conflicts should occur here because `master` is always kept ahead of `fe-release`.
+      </Step>
+      <Step title="Push and open a pull request">
+        ```bash
+        git push -u origin release/date
+        ```
+        Open a pull request against `fe-release`. An overview is optional but links to included PRs are helpful for reviewers.
+      </Step>
+      <Step title="Review and merge">
+        Once approved by **at least two maintainers**, the PR is **regularly merged** into `fe-release` and the release branch is deleted.
+      </Step>
+    </Steps>
+  </Tab>
+  <Tab title="Hotfix">
+    Use this workflow when a critical bug in the production frontend must be fixed without pulling in all of `master`.
+
+    <Steps>
+      <Step title="Create a hotfix branch from fe-release">
+        ```bash
+        git checkout fe-release && git pull
+        # Date format is YYYY-MM-DD
+        git checkout -b hotfix/date
+        ```
+      </Step>
+      <Step title="Implement and push your hotfix">
+        ```bash
+        git push -u origin hotfix/date
+        ```
+      </Step>
+      <Step title="Review and merge">
+        Once approved by **at least two maintainers**, the PR is **squash merged** into `fe-release` and the hotfix branch is deleted.
+      </Step>
+      <Step title="Catch up master">
+        After the hotfix is live, bring `master` back in sync so it is never behind `fe-release`:
+        ```bash
+        git checkout fe-release && git pull
+        git checkout master && git pull
+        git checkout -b catchup/date
+        git merge fe-release
+        git push -u origin catchup/date
+        ```
+        Open a pull request against `master`. Once approved by **at least one maintainer**, it is **regularly merged** and the catchup branch is deleted.
+      </Step>
+    </Steps>
+
+    <Note>
+      During a hotfix, `master` is temporarily behind `fe-release`. This is the only accepted exception to the rule that `master` must always be ahead of `fe-release`.
+    </Note>
+  </Tab>
+</Tabs>
+
+## Local setup
+
+### Clone the repository
+
+The repository uses Git submodules. Always clone with `--recurse-submodules`:
+
+```bash
+git clone https://github.com/synapsecns/sanguine --recurse-submodules -j10
+cd sanguine
+yarn install
+```
+
+When switching branches, keep submodules in sync:
+
+```bash
+git submodule update --init --recursive
+# or during checkout:
+git checkout feat/branch-name --recurse-submodules
+```
+
+### Node.js version
+
+Use `nvm` to activate the project's required Node.js version:
+
+```bash
+nvm use
+```
+
+### Building TypeScript packages
+
+After switching branches, rebuild all TypeScript packages to avoid compatibility issues between packages compiled on different branches:
+
+```bash
+yarn clean && yarn build
+```
+
+<Warning>
+  Packages compiled on one branch may not be compatible with packages on a different branch. Always recompile after switching branches.
+</Warning>
+
+### Go development
+
+The repository uses a Go workspace (`go.work`) to manage multiple Go modules. No manual `GOPATH` setup is needed.
+
+**Linting** is handled by [golangci-lint](https://golangci-lint.run/). The version is pinned in the `.golangci-version` file and managed automatically — no manual installation is required. Run `make lint` from any Go module directory and the correct version is downloaded and executed:
+
+```bash
+make lint
+```
+
+**Running Go tests** for a module:
+
+```bash
+go test -v ./...
+```
+
+To run tests for the agents module specifically:
+
+```bash
+cd agents
+go test -v ./...
+```
+
+## Adding new packages
+
+<AccordionGroup>
+  <Accordion title="Adding a new TypeScript package">
+    - If the package lives under `packages/*`, no additional configuration is needed.
+    - For packages outside `packages/`, add the directory to `.github/workflows/lerna.yml` under `paths`, to `workspaces.packages` in `package.json`, and to `lerna.json` under `packages` and `version`.
+    - To publish the package publicly, set `"private": false` and `"publishConfig": { "access": "public" }` in its `package.json`.
+  </Accordion>
+  <Accordion title="Adding a new Go module">
+    1. Create the directory under the appropriate sub-directory (not `packages/`, which is for JavaScript).
+    2. Create a `go.mod` file with the module path matching the directory path. Match the Go version in the root `go.work` file.
+    3. Add the module to `go.work` in alphabetical order.
+    4. Add the module to `.codecov.yml` under `flags` in alphabetical order.
+    5. Create a `Makefile` (symlink to `make/go.Makefile` for modules with no custom commands).
+    6. Create a `.goreleaser.yml` file.
+    7. Create a `README.md` with a description, godoc link, and go report card badge.
+    8. Add the directory and description to the [Directory Structure](https://github.com/synapsecns/sanguine#directory-structure) section of the root `README.md` in alphabetical order.
+  </Accordion>
+</AccordionGroup>
+
+## Pull request checklist
+
+Before opening a PR, verify:
+
+- Code follows the [Uber Go Style Guide](https://github.com/uber-go/guide/blob/master/style.md) (for Go) or existing TypeScript conventions.
+- Tests are added or updated for your changes.
+- Documentation is updated where necessary.
+- `go generate ./...` has been run if the PR touches generated code (a `needs-go-generate` label will appear if not).
+- `yarn` has been run in the root if dependencies changed (a `needs-yarn-lock` label will appear if not).
+- The Notion task ID is appended to the PR title if applicable, not prepended.
+
+<Tip>
+  CodeRabbit will automatically review your PR. Its suggestions are a useful starting point but you are not required to implement every recommendation — use your judgment.
+</Tip>
+
+## Getting help
+
+- Check the list of [good first issues](https://github.com/synapsecns/sanguine/contribute) for a starting point.
+- Join the [Discord](https://discord.com/invite/3AHETJmrXW) or [Telegram](https://t.me/synapseprotocol) community for questions.
+- Review CI output carefully — the linting checks are the fastest to fix and are a prerequisite for hotfix merges.

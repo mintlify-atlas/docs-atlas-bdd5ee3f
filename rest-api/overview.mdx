@@ -1,0 +1,121 @@
+---
+title: 'Synapse REST API: bridge, swap, and RFQ endpoints'
+description: 'The Synapse REST API at api.synapseprotocol.com offers HTTP endpoints for bridge quotes, swap quotes, token lists, and RFQ data with no authentication required.'
+keywords: ['synapse', 'rest api', 'bridge', 'swap', 'rfq', 'overview']
+---
+
+The Synapse Protocol REST API is a public HTTP interface that lets you fetch bridge quotes, swap quotes, transaction calldata, token metadata, and Request-For-Quote data across all supported chains. All endpoints are available without an API key, and every response is JSON.
+
+<Note>
+  The interactive Swagger UI is available at [https://api.synapseprotocol.com/api-docs/](https://api.synapseprotocol.com/api-docs/). It documents every endpoint and lets you make live requests from your browser.
+</Note>
+
+## Base URL
+
+```
+https://api.synapseprotocol.com
+```
+
+You can also run the server locally with `yarn dev`, which starts on `http://localhost:3000`.
+
+## Endpoint groups
+
+<CardGroup cols={2}>
+  <Card title="Bridge endpoints" icon="arrow-right-arrow-left" href="/rest-api/bridge-endpoints">
+    Get bridge quotes, check min/max amounts, retrieve transaction calldata, and look up bridge status. Includes both the legacy `/bridge` route and the newer `/bridge/v2`.
+  </Card>
+  <Card title="Swap endpoints" icon="arrows-rotate" href="/rest-api/swap-endpoints">
+    Get same-chain swap quotes, retrieve transaction calldata for swaps, list bridgeable destination tokens, and look up the full supported token list.
+  </Card>
+  <Card title="RFQ endpoints" icon="bolt" href="/rest-api/rfq-endpoints">
+    Interact with the Request-For-Quote system: fetch relayer quotes, submit quotes, stream active RFQ events, and access RFQ monitoring data via the indexer.
+  </Card>
+  <Card title="Token info" icon="coins" href="/rest-api/swap-endpoints#get-tokenlist">
+    The `/tokenlist` endpoint returns the complete set of bridgeable tokens with addresses and decimals per chain, and the root `/` endpoint lists available chains and tokens.
+  </Card>
+</CardGroup>
+
+## Making a bridge request
+
+The quickest way to get started is to fetch a bridge quote and use the returned data to build a transaction.
+
+<Steps>
+  <Step title="Get a bridge quote">
+    Call `/bridge` (or the newer `/bridge/v2`) with the source chain, destination chain, token addresses, and amount.
+
+    ```bash
+    curl "https://api.synapseprotocol.com/bridge?fromChain=1&toChain=42161&fromToken=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48&toToken=0xaf88d065e77c8cC2239327C5EDb3A432268e5831&amount=100"
+    ```
+
+    The response includes `maxAmountOut`, `estimatedTime`, the `bridgeModuleName`, and the `routerAddress`.
+  </Step>
+  <Step title="Retrieve transaction calldata">
+    Pass the same parameters plus `destAddress` to `/bridgeTxInfo` to get the encoded calldata ready to broadcast.
+
+    ```bash
+    curl "https://api.synapseprotocol.com/bridgeTxInfo?fromChain=1&toChain=42161&fromToken=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48&toToken=0xaf88d065e77c8cC2239327C5EDb3A432268e5831&amount=100&destAddress=0xcc78d2f004c9de9694ff6a9bbdee4793d30f3842"
+    ```
+  </Step>
+  <Step title="Sign and broadcast the transaction">
+    Use the returned `to`, `data`, and `value` fields to construct and send the transaction with any EVM-compatible signer.
+
+    ```javascript
+    const provider = new ethers.providers.Web3Provider(window.ethereum);
+    const signer = provider.getSigner();
+    const transaction = await signer.sendTransaction(txInfoData);
+    const receipt = await transaction.wait();
+    ```
+  </Step>
+</Steps>
+
+## Authentication
+
+No authentication is required. All endpoints are publicly accessible.
+
+## Environment variables
+
+The server reads two optional environment variables that control which upstream RFQ services are called:
+
+| Variable | Default | Description |
+|---|---|---|
+| `RFQ_API_URL` | `https://rfq-api.omnirpc.io` | URL for the RFQ API used to fetch and submit relayer quotes |
+| `RFQ_INDEXER_URL` | `https://rfq-indexer.synapseprotocol.com/api` | URL for the RFQ Indexer, which powers the monitoring endpoints |
+
+## Error format
+
+All `400` validation errors return a JSON body with an `errors` array:
+
+```json
+{
+  "errors": [
+    {
+      "value": "999",
+      "msg": "Unsupported fromChain",
+      "param": "fromChain",
+      "location": "query"
+    }
+  ]
+}
+```
+
+Some endpoints use a slightly different shape with a top-level `error` object instead of an array — check the per-endpoint documentation for details.
+
+`500` responses return a plain `{ "error": "..." }` string.
+
+## Quick JavaScript example
+
+```javascript
+async function getBridgeQuote() {
+  const response = await fetch(
+    'https://api.synapseprotocol.com/bridge' +
+    '?fromChain=1&toChain=42161' +
+    '&fromToken=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' +
+    '&toToken=0xaf88d065e77c8cC2239327C5EDb3A432268e5831' +
+    '&amount=100'
+  );
+  const data = await response.json();
+  console.log(data);
+}
+
+getBridgeQuote();
+```

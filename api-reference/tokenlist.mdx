@@ -1,0 +1,124 @@
+---
+title: "Bridgeable token registry: GET /tokenlist"
+description: "Fetch the complete registry of bridgeable tokens and their per-chain contract addresses, decimals, and metadata using GET /tokenlist."
+---
+
+`GET /tokenlist` returns the authoritative registry of every token supported by the Synapse bridge protocol. The response is a map keyed by token symbol. Each entry contains the token's contract addresses and decimal counts across every supported chain, along with display metadata such as name, color, priority rank, and image URL. Use this endpoint to seed token pickers, validate user input, and avoid hard-coding token addresses in your application.
+
+```
+GET https://api.synapseprotocol.com/tokenlist
+```
+
+## Query parameters
+
+This endpoint takes no query parameters.
+
+## Response fields
+
+The response is a JSON object whose keys are token symbols (e.g. `"USDC"`, `"USDT"`, `"nUSD"`). Each value is a token metadata object.
+
+<ResponseField name="{symbol}" type="object">
+  Token metadata keyed by the token's ticker symbol.
+
+  <Expandable title="token object fields">
+    <ResponseField name="symbol" type="string">
+      Token ticker symbol (e.g. `"USDC"`).
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Full human-readable token name (e.g. `"USD Coin"`).
+    </ResponseField>
+    <ResponseField name="addresses" type="object">
+      Map of chain ID (as string) to contract address on that chain. Chains where the token is not deployed are omitted.
+
+      **Example:** `{ "1": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", "10": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85" }`
+    </ResponseField>
+    <ResponseField name="decimals" type="object">
+      Map of chain ID (as string) to the number of decimal places for the token on that chain.
+
+      **Example:** `{ "1": 6, "10": 6 }`
+    </ResponseField>
+    <ResponseField name="swapableType" type="string">
+      Asset class used for routing (e.g. `"USD"`, `"ETH"`). Tokens with the same `swapableType` can be swapped against each other in Synapse pools.
+    </ResponseField>
+    <ResponseField name="color" type="string">
+      Display color hint for UI theming (e.g. `"blue"`, `"lime"`, `"purple"`).
+    </ResponseField>
+    <ResponseField name="priorityRank" type="integer">
+      Sort order hint. Lower numbers indicate higher priority in token lists. Core stablecoins typically have a rank of `100`.
+    </ResponseField>
+    <ResponseField name="routeSymbol" type="string">
+      Internal routing symbol used for pool lookups. Usually identical to `symbol`.
+    </ResponseField>
+    <ResponseField name="imgUrl" type="string">
+      URL of the token's logo image.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example request
+
+```bash
+curl "https://api.synapseprotocol.com/tokenlist"
+```
+
+## Example response
+
+```json
+{
+  "USDC": {
+    "addresses": {
+      "1": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+      "10": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85"
+    },
+    "decimals": {
+      "1": 6,
+      "10": 6
+    },
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "swapableType": "USD",
+    "color": "blue",
+    "priorityRank": 100,
+    "routeSymbol": "USDC",
+    "imgUrl": "https://example.com/usdc.svg"
+  },
+  "USDT": {
+    "addresses": {
+      "1": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+      "10": "0x94b008aA00579c1307B0EF2c499aD98a8ce58e58"
+    },
+    "decimals": {
+      "1": 6,
+      "10": 6
+    },
+    "symbol": "USDT",
+    "name": "USD Tether",
+    "swapableType": "USD",
+    "color": "lime",
+    "priorityRank": 100,
+    "routeSymbol": "USDT",
+    "imgUrl": "https://example.com/usdt.svg"
+  },
+  "nUSD": {
+    "addresses": {
+      "1": "0x1B84765dE8B7566e4cEAF4D0fD3c5aF52D3DdE4F",
+      "10": "0x67C10C397dD0Ba417329543c1a40eb48AAa7cd00"
+    },
+    "decimals": {
+      "1": 18,
+      "10": 18
+    },
+    "symbol": "nUSD",
+    "name": "Synapse nUSD",
+    "swapableType": "USD",
+    "color": "purple",
+    "priorityRank": 500,
+    "routeSymbol": "nUSD",
+    "imgUrl": "https://example.com/nusd.svg"
+  }
+}
+```
+
+<Note>
+  The `decimals` map may differ per chain for the same token. Always look up the decimal count for the specific chain you are working with before converting amounts to/from human-readable form.
+</Note>

@@ -1,97 +1,75 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Synapse Protocol — Cross-Chain Bridge and SDK"
+description: "Bridge tokens across 19+ EVM chains using the Synapse SDK, REST API, or embeddable React widget. Powered by SynapseBridge, SynapseCCTP, and SynapseRFQ modules."
 ---
 
-## Setting up
+Synapse Protocol is a cross-chain interoperability platform that lets you bridge tokens, send messages, and build multi-chain applications across 19+ EVM-compatible networks. The monorepo contains everything from Solidity contracts and off-chain agents to a TypeScript SDK, embeddable React widget, and a production REST API.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Bridge SDK Quickstart" icon="bolt" href="/sdk/quickstart">
+    Install `@synapsecns/sdk-router` and get your first bridge quote in minutes.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="REST API Overview" icon="globe" href="/rest-api/overview">
+    Query bridge quotes, swap routes, and transaction status from `api.synapseprotocol.com`.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Bridge Widget" icon="puzzle-piece" href="/sdk/bridge-widget">
+    Embed a fully functional bridge UI into any React app with a single component.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Architecture Overview" icon="diagram-project" href="/architecture">
+    Understand how the bridge modules, agents, and services fit together.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What you can build
 
-Everything you need to create world-class documentation.
+<CardGroup cols={3}>
+  <Card title="DeFi Integrations" icon="coins">
+    Use the SDK or REST API to route cross-chain swaps and bridging inside your protocol.
+  </Card>
+  <Card title="Custom Bridge UIs" icon="browser">
+    Drop the `@synapsecns/widget` into your dApp for instant bridging with your own branding.
+  </Card>
+  <Card title="Interchain Messaging" icon="network-wired">
+    Build contracts on the Synapse Interchain Network for trust-minimized cross-chain messaging.
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Key integration steps
 
-## Need inspiration?
+<Steps>
+  <Step title="Choose your integration path">
+    Use the **TypeScript SDK** for full programmatic control, the **REST API** for simple HTTP calls, or the **React widget** for a zero-config UI.
+  </Step>
+  <Step title="Get bridge quotes">
+    Call `allBridgeQuotes()` (SDK) or `GET /bridge` (REST API) to compare routes across SynapseBridge, SynapseCCTP, and SynapseRFQ modules.
+  </Step>
+  <Step title="Execute bridge transactions">
+    Use the returned quote to populate and submit a transaction on the origin chain. The protocol handles routing and settlement on the destination.
+  </Step>
+  <Step title="Track transaction status">
+    Poll `getBridgeTxStatus()` or `GET /bridgeTxStatus` to confirm when funds arrive on the destination chain.
+  </Step>
+</Steps>
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+## Explore the documentation
+
+<CardGroup cols={2}>
+  <Card title="Bridging" icon="arrow-right-arrow-left" href="/sdk/bridging">
+    End-to-end bridging guide: quotes, slippage, deadlines, and transaction execution.
+  </Card>
+  <Card title="Swapping" icon="rotate" href="/sdk/swapping">
+    Perform on-chain swaps on a single chain using the SynapseSDK swap API.
+  </Card>
+  <Card title="OmniRPC" icon="server" href="/services/omnirpc">
+    Multi-provider RPC load balancer that verifies responses across N nodes.
+  </Card>
+  <Card title="Scribe Indexer" icon="magnifying-glass" href="/services/scribe">
+    Multi-chain event indexer with GraphQL API for querying on-chain history.
+  </Card>
+  <Card title="Interchain Agents" icon="robot" href="/interchain/agents">
+    Off-chain Notary, Guard, and Executor agents that power the SIN messaging layer.
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/bridge">
+    Full reference for every REST API endpoint with parameters and response schemas.
+  </Card>
+</CardGroup>

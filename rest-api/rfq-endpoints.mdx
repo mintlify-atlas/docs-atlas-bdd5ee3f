@@ -1,0 +1,391 @@
+---
+title: 'RFQ Endpoints — Synapse Protocol REST API'
+description: 'Fetch, submit, and stream Request-For-Quote data. Includes relayer quote management, RFQ contract addresses, and RFQ indexer monitoring endpoints.'
+keywords: ['synapse', 'rfq', 'request for quote', 'relayer', 'quotes', 'rest api', 'rfq indexer']
+---
+
+The RFQ (Request-For-Quote) endpoints power the fast bridge path in Synapse Protocol. There are two underlying services: the **RFQ API** (default: `https://rfq-api.omnirpc.io`) handles relayer quotes and active RFQ sessions, while the **RFQ Indexer** (default: `https://rfq-indexer.synapseprotocol.com/api`) provides monitoring data for completed, disputed, and anomalous transactions.
+
+<Note>
+  The base URL for all endpoints below is `https://api.synapseprotocol.com`. The API server proxies RFQ requests to the upstream services configured by the `RFQ_API_URL` and `RFQ_INDEXER_URL` environment variables. See the [overview](/rest-api/overview) for default values.
+</Note>
+
+---
+
+## RFQ API endpoints
+
+### GET /quotes
+
+Returns quotes from all relayers matching the given filter criteria.
+
+#### Parameters
+
+<ParamField query="originChainID" type="integer" required>
+  Origin chain ID to filter by.
+</ParamField>
+
+<ParamField query="originTokenAddr" type="string" required>
+  Origin token address to filter by.
+</ParamField>
+
+<ParamField query="destChainID" type="integer" required>
+  Destination chain ID to filter by.
+</ParamField>
+
+<ParamField query="destTokenAddr" type="string" required>
+  Destination token address to filter by.
+</ParamField>
+
+<ParamField query="relayerAddr" type="string" required>
+  Relayer address to filter by.
+</ParamField>
+
+#### Response
+
+Returns an array of quote objects.
+
+<ResponseField name="origin_chain_id" type="integer">Chain ID the relayer is willing to relay from.</ResponseField>
+<ResponseField name="origin_token_addr" type="string">Origin token address.</ResponseField>
+<ResponseField name="dest_chain_id" type="integer">Chain ID the relayer is willing to relay to.</ResponseField>
+<ResponseField name="dest_token_addr" type="string">Destination token address.</ResponseField>
+<ResponseField name="dest_amount" type="string">Maximum destination liquidity available, in destination token decimals.</ResponseField>
+<ResponseField name="max_origin_amount" type="string">Maximum origin token amount that can be bridged.</ResponseField>
+<ResponseField name="fixed_fee" type="string">Fixed fee for the quote, in destination token terms.</ResponseField>
+<ResponseField name="origin_fast_bridge_address" type="string">Fast bridge contract address on the origin chain.</ResponseField>
+<ResponseField name="dest_fast_bridge_address" type="string">Fast bridge contract address on the destination chain.</ResponseField>
+<ResponseField name="relayer_addr" type="string">Address of the relayer providing the quote.</ResponseField>
+<ResponseField name="updated_at" type="string">Timestamp when the quote was last updated.</ResponseField>
+
+#### Example
+
+```bash
+curl "https://api.synapseprotocol.com/quotes?originChainID=1&originTokenAddr=0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48&destChainID=42161&destTokenAddr=0xff970a61a04b1ca14834a43f5de4533ebddb5cc8&relayerAddr=0x0000000000000000000000000000000000000000"
+```
+
+---
+
+### PUT /quotes
+
+Submit or update a single relayer quote. Relayers call this endpoint to advertise their available liquidity and fee terms.
+
+#### Request body
+
+```json
+{
+  "origin_chain_id": 1,
+  "origin_token_addr": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+  "dest_chain_id": 42161,
+  "dest_token_addr": "0xff970a61a04b1ca14834a43f5de4533ebddb5cc8",
+  "dest_amount": "1000000000000",
+  "max_origin_amount": "1000000000000",
+  "fixed_fee": "1000000",
+  "origin_fast_bridge_address": "0x...",
+  "dest_fast_bridge_address": "0x..."
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `origin_chain_id` | integer | Origin chain ID |
+| `origin_token_addr` | string | Origin token address |
+| `dest_chain_id` | integer | Destination chain ID |
+| `dest_token_addr` | string | Destination token address |
+| `dest_amount` | string | Maximum destination liquidity in dest token decimals |
+| `max_origin_amount` | string | Maximum bridgeable origin amount |
+| `fixed_fee` | string | Fixed fee in destination token terms |
+| `origin_fast_bridge_address` | string | Fast bridge contract on origin chain |
+| `dest_fast_bridge_address` | string | Fast bridge contract on destination chain |
+
+#### Response
+
+Returns HTTP `200` on success with no body.
+
+#### Example
+
+```bash
+curl -X PUT "https://api.synapseprotocol.com/quotes" \
+  -H "Content-Type: application/json" \
+  -d '{"origin_chain_id":1,"origin_token_addr":"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48","dest_chain_id":42161,"dest_token_addr":"0xff970a61a04b1ca14834a43f5de4533ebddb5cc8","dest_amount":"1000000000000","max_origin_amount":"1000000000000","fixed_fee":"1000000","origin_fast_bridge_address":"0x...","dest_fast_bridge_address":"0x..."}'
+```
+
+---
+
+### GET /open_quote_requests
+
+Returns all open quote requests currently in `Received` or `Pending` status. Relayers poll this endpoint to discover quote requests they should respond to.
+
+This endpoint takes no parameters.
+
+#### Response
+
+Returns an array of open quote request objects.
+
+<ResponseField name="user_address" type="string">Address of the user who initiated the quote request.</ResponseField>
+<ResponseField name="origin_chain_id" type="integer">Origin chain ID.</ResponseField>
+<ResponseField name="origin_token" type="string">Origin token address.</ResponseField>
+<ResponseField name="origin_amount" type="string">Amount to be bridged, in origin token decimals.</ResponseField>
+<ResponseField name="dest_chain_id" type="integer">Destination chain ID.</ResponseField>
+<ResponseField name="dest_token" type="string">Destination token address.</ResponseField>
+<ResponseField name="expiration_window" type="integer">Time window in seconds before the request expires.</ResponseField>
+<ResponseField name="created_at" type="string">Timestamp when the request was created.</ResponseField>
+
+#### Example
+
+```bash
+curl "https://api.synapseprotocol.com/open_quote_requests"
+```
+
+---
+
+### GET /contracts
+
+Returns a map of chain IDs to fast bridge contract addresses deployed by the RFQ system.
+
+This endpoint takes no parameters.
+
+#### Response
+
+Returns an array containing a `contracts` object.
+
+<ResponseField name="contracts" type="object">
+  A map where each key is a chain ID (as a string) and the value is the corresponding fast bridge contract address.
+</ResponseField>
+
+#### Example
+
+```bash
+curl "https://api.synapseprotocol.com/contracts"
+```
+
+```json
+[
+  {
+    "contracts": {
+      "1": "0x...",
+      "42161": "0x..."
+    }
+  }
+]
+```
+
+---
+
+### PUT /rfq
+
+Initiate an active Request-For-Quote session. The server solicits quotes from available relayers and returns the best one.
+
+#### Request body
+
+```json
+{
+  "user_address": "0xYourAddress",
+  "integrator_id": "your-integrator-id",
+  "quote_types": ["active", "passive"],
+  "data": {
+    "origin_chain_id": 1,
+    "origin_token_addr": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+    "origin_amount": "1000000",
+    "dest_chain_id": 42161,
+    "dest_token_addr": "0xff970a61a04b1ca14834a43f5de4533ebddb5cc8",
+    "dest_amount": "999000",
+    "expiration_window": 30,
+    "quote_id": "",
+    "relayer_address": ""
+  }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `user_address` | string | Address of the user initiating the RFQ |
+| `integrator_id` | string | Identifier for the integrating application |
+| `quote_types` | array | Quote types to request (e.g., `active`, `passive`) |
+| `data.origin_chain_id` | integer | Origin chain ID |
+| `data.origin_token_addr` | string | Origin token address |
+| `data.origin_amount` | string | Amount to bridge in origin token decimals |
+| `data.dest_chain_id` | integer | Destination chain ID |
+| `data.dest_token_addr` | string | Destination token address |
+| `data.dest_amount` | string | Minimum acceptable destination amount |
+| `data.expiration_window` | integer | Seconds before the RFQ expires |
+
+#### Response
+
+<ResponseField name="success" type="boolean">Whether a valid quote was found.</ResponseField>
+<ResponseField name="quote_id" type="string">Identifier for the winning quote.</ResponseField>
+<ResponseField name="quote_type" type="string">Type of quote selected.</ResponseField>
+<ResponseField name="dest_amount" type="string">Destination amount offered by the winning relayer.</ResponseField>
+<ResponseField name="relayer_address" type="string">Address of the winning relayer.</ResponseField>
+<ResponseField name="reason" type="string">Reason string, populated when `success` is `false`.</ResponseField>
+
+#### Example
+
+```bash
+curl -X PUT "https://api.synapseprotocol.com/rfq" \
+  -H "Content-Type: application/json" \
+  -d '{"user_address":"0xYourAddress","integrator_id":"my-app","quote_types":["active"],"data":{"origin_chain_id":1,"origin_token_addr":"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48","origin_amount":"1000000","dest_chain_id":42161,"dest_token_addr":"0xff970a61a04b1ca14834a43f5de4533ebddb5cc8","dest_amount":"999000","expiration_window":30,"quote_id":"","relayer_address":""}}'
+```
+
+---
+
+### GET /rfq_stream
+
+Establishes a WebSocket connection that streams active RFQ events in real time. Relayers connect to this endpoint to receive new quote requests as they arrive without polling.
+
+<Note>
+  This endpoint upgrades the connection to WebSocket (HTTP 101 Switching Protocols). Use a WebSocket client rather than a standard HTTP client.
+</Note>
+
+#### Example
+
+```javascript
+const ws = new WebSocket('wss://api.synapseprotocol.com/rfq_stream');
+
+ws.onmessage = (event) => {
+  const rfqRequest = JSON.parse(event.data);
+  console.log('New RFQ request:', rfqRequest);
+};
+```
+
+---
+
+## RFQ indexer monitoring endpoints
+
+The following endpoints are served via the RFQ Indexer and surface data about the health and integrity of the fast bridge system. They are useful for relayer operators and protocol monitoring.
+
+### GET /conflicting-proofs
+
+Returns transactions where the relayer recorded in the proof event differs from the relayer in the corresponding relay event. These indicate a potential mismatch that may require investigation.
+
+#### Example
+
+```bash
+curl "https://api.synapseprotocol.com/conflicting-proofs"
+```
+
+#### Response schema
+
+Each item contains the full lifecycle state of the transaction:
+
+<ResponseField name="Bridge" type="object">General transaction fields.</ResponseField>
+<ResponseField name="BridgeRequest" type="object">Deposit information.</ResponseField>
+<ResponseField name="BridgeRelay" type="object">Relay information.</ResponseField>
+<ResponseField name="BridgeRefund" type="object">Refund information if applicable.</ResponseField>
+<ResponseField name="BridgeProof" type="object">Proof submission details.</ResponseField>
+<ResponseField name="BridgeClaim" type="object">Claim information if available.</ResponseField>
+<ResponseField name="BridgeDispute" type="object">Dispute information if available.</ResponseField>
+
+Returns `404` when no conflicting proofs are found.
+
+---
+
+### GET /disputes
+
+Returns all active disputes in the RFQ system.
+
+```bash
+curl "https://api.synapseprotocol.com/disputes"
+```
+
+The response schema matches `/conflicting-proofs`. Returns `404` when no active disputes are found.
+
+---
+
+### GET /invalid-relays
+
+Returns relay events from the past two weeks that are considered invalid (e.g., a relay was submitted for a non-existent deposit, or after the deadline).
+
+```bash
+curl "https://api.synapseprotocol.com/invalid-relays"
+```
+
+The response schema matches `/conflicting-proofs`. Returns `404` when no recent invalid relays are found.
+
+---
+
+### GET /pending-transactions/missing-relay
+
+Returns deposits that have not yet been relayed or refunded.
+
+```bash
+curl "https://api.synapseprotocol.com/pending-transactions/missing-relay"
+```
+
+Returns an array of objects with a `deposit` field containing deposit details.
+
+---
+
+### GET /pending-transactions/missing-proof
+
+Returns transactions that have been deposited and relayed but where the relayer has not yet submitted a proof.
+
+```bash
+curl "https://api.synapseprotocol.com/pending-transactions/missing-proof"
+```
+
+Returns an array of objects with `deposit` and `relay` fields.
+
+---
+
+### GET /pending-transactions/missing-claim
+
+Returns transactions that have been deposited, relayed, and proven, but where the relayer has not yet claimed their funds.
+
+```bash
+curl "https://api.synapseprotocol.com/pending-transactions/missing-claim"
+```
+
+The response schema matches `/conflicting-proofs`.
+
+---
+
+### GET /pending-transactions/exceed-deadline
+
+Returns deposits that have passed their deadline without being relayed or refunded.
+
+```bash
+curl "https://api.synapseprotocol.com/pending-transactions/exceed-deadline"
+```
+
+Returns an array of objects with a `deposit` field.
+
+---
+
+### GET /refunded-and-relayed
+
+Returns transactions that have been both refunded to the depositor and relayed by a relayer — an anomalous state that should not occur in normal operation.
+
+```bash
+curl "https://api.synapseprotocol.com/refunded-and-relayed"
+```
+
+The response schema matches `/conflicting-proofs`.
+
+---
+
+### GET /transaction-id/{transactionId}
+
+Returns full lifecycle details for a single transaction, identified by its Synapse transaction ID or origin transaction hash.
+
+#### Path parameter
+
+<ParamField query="transactionId" type="string" required>
+  The Synapse transaction ID or the origin chain transaction hash.
+</ParamField>
+
+#### Response
+
+<ResponseField name="Bridge" type="object">General transaction fields.</ResponseField>
+<ResponseField name="BridgeRequest" type="object">Deposit information.</ResponseField>
+<ResponseField name="BridgeRelay" type="object">Relay information.</ResponseField>
+<ResponseField name="BridgeRefund" type="object">Refund information if applicable.</ResponseField>
+<ResponseField name="BridgeProof" type="object">Proof submission details.</ResponseField>
+<ResponseField name="BridgeClaim" type="object">Claim information if available.</ResponseField>
+<ResponseField name="BridgeDispute" type="object">Dispute information if available.</ResponseField>
+
+Returns `404` if the transaction is not found.
+
+#### Example
+
+```bash
+curl "https://api.synapseprotocol.com/transaction-id/0x812516c5477aeeb4361ecbdd561abcd10f779a0fce22bad13635b8cae088760a"
+```

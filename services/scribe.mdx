@@ -1,0 +1,181 @@
+---
+title: 'Scribe — Multi-Chain Contract Event Indexer'
+description: 'Scribe indexes contract logs, receipts, and transactions across EVM chains into MySQL or SQLite. Exposes data via a GraphQL server with built-in query support.'
+---
+
+Scribe is a multi-chain indexing service that tracks every on-chain event for a configured list of contracts from their first block to the present. It stores logs, receipts, transactions, and block timestamps in a relational database (MySQL or SQLite), then exposes that data through a GraphQL server. Scribe currently indexes over 900 contracts across 18 different chains and is the data backbone for analytics, event streaming, and contract monitoring across the Synapse Protocol.
+
+<CardGroup cols={2}>
+  <Card title="Full event history" icon="clock-rotate-left">
+    Indexes all logs, receipts, and transactions from a contract's start block to the live chain tip using a backfill + livefill pipeline.
+  </Card>
+  <Card title="Reorg protection" icon="shield-halved">
+    Unconfirmed events near the chain tip are stored in separate transient tables and are flushed on a configurable interval, keeping primary tables clean.
+  </Card>
+  <Card title="GraphQL API" icon="code">
+    Query indexed data with built-in queries for block times, log ranges, last-indexed block, and transaction senders.
+  </Card>
+  <Card title="MySQL and SQLite" icon="database">
+    Supports SQLite for local development and MySQL for production. The Helm chart bundles a Bitnami MySQL dependency.
+  </Card>
+</CardGroup>
+
+## Running Scribe
+
+<Steps>
+  <Step title="Build the binary">
+    ```bash
+    go run main.go
+    ```
+  </Step>
+  <Step title="Start the indexer">
+    Pass your config file path, the database type, and the database path or DSN:
+
+    ```bash
+    Scribe --config /full/path/to/config.yaml --db sqlite --path /path/to/database
+    ```
+
+    For MySQL, replace `sqlite` with `mysql` and provide a DSN as the `--path` value.
+  </Step>
+  <Step title="Start the GraphQL server">
+    Run the server command separately (it reads from the same database):
+
+    ```bash
+    server --port 8080 --db sqlite --path /path/to/database
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  Scribe requires a running OmniRPC instance. Set `rpc_url` in your config to point at your OmniRPC endpoint. See [OmniRPC](/services/omnirpc) for setup instructions.
+</Warning>
+
+## Configuration
+
+Scribe's behavior is controlled by a single YAML file. The file specifies the OmniRPC URL, a list of chains, and per-chain contract addresses with their start blocks.
+
+```yaml
+rpc_url: <omnirpc-url>
+chains:
+  - chain_id: 1
+    get_logs_range: 500
+    get_block_batch_amount: 1
+    store_concurrency: 100
+    concurrency_threshold: 50000
+    livefill_threshold: 300
+    livefill_range: 200
+    livefill_flush_interval: 10000
+    confirmations: 200
+    contracts:
+      - address: 0xAf41a65F786339e7911F4acDAD6BD49426F2Dc6b
+        start_block: 18646320
+```
+
+### Config fields
+
+<AccordionGroup>
+  <Accordion title="Top-level fields">
+    | Field | Description |
+    |---|---|
+    | `rpc_url` | URL of the OmniRPC aggregator used for all RPC calls. |
+    | `chains` | List of chain configurations to index. |
+    | `verbose` | Enable verbose logging. |
+  </Accordion>
+  <Accordion title="Chain fields">
+    | Field | Description |
+    |---|---|
+    | `chain_id` | EVM chain ID. |
+    | `get_logs_range` | Number of blocks requested in a single `eth_getLogs` call. |
+    | `get_logs_batch_amount` | Number of `eth_getLogs` calls to batch into one RPC request. |
+    | `store_concurrency` | Number of goroutines used when writing data to the database. |
+    | `concurrency_threshold` | Maximum number of blocks from the head where concurrent store operations are allowed. |
+    | `livefill_threshold` | Distance from the chain tip at which backfill transitions to livefill. |
+    | `livefill_range` | Block range per `eth_getLogs` call used by the livefill indexer. |
+    | `livefill_flush_interval` | Interval (in blocks) at which the unconfirmed livefill table is flushed. |
+    | `confirmations` | Number of blocks from the head that the livefiller indexes up to before the unconfirmed indexer takes over. |
+  </Accordion>
+  <Accordion title="Contract fields">
+    | Field | Description |
+    |---|---|
+    | `address` | Contract address to index. |
+    | `start_block` | Block number of the first transaction for this contract. |
+  </Accordion>
+</AccordionGroup>
+
+## GraphQL queries
+
+The Scribe GraphQL server exposes several queries for interacting with the indexed data.
+
+<CodeGroup>
+
+```graphql Last indexed block
+query {
+  lastIndexed(chain_id: 1, contract_address: "0xAf41a65F786339e7911F4acDAD6BD49426F2Dc6b")
+}
+```
+
+```graphql Log range
+query {
+  logsRange(
+    chain_id: 1,
+    contract_address: "0xAf41a65F786339e7911F4acDAD6BD49426F2Dc6b",
+    start_block: 18646320,
+    end_block: 18647000,
+    page: 1
+  ) {
+    block_number
+    tx_hash
+    data
+  }
+}
+```
+
+```graphql Block timestamp
+query {
+  blockTime(chain_id: 1, block_number: 18646320)
+}
+```
+
+```graphql Transaction sender
+query {
+  txSender(tx_hash: "0xabc...", chain_id: 1)
+}
+```
+
+</CodeGroup>
+
+<Tip>
+  The GraphQL server queries both the primary (confirmed) and transient (unconfirmed) tables simultaneously, so real-time data is available immediately without waiting for confirmation.
+</Tip>
+
+## Architecture
+
+Scribe's indexing pipeline is composed of three layered components.
+
+<AccordionGroup>
+  <Accordion title="Fetcher">
+    Takes a list of contracts and a block range. It calls `eth_getLogs` in chunks defined by `get_logs_range` and `get_logs_batch_amount`, and feeds the resulting logs into a channel for the Indexer to consume.
+  </Accordion>
+  <Accordion title="Indexer">
+    Consumes logs from a Fetcher and, for each log, fetches the corresponding transaction, block header (for timestamp), and full receipt. It then writes all of this data to the database. Concurrent goroutine counts are controlled by `store_concurrency` and `concurrency_threshold`.
+  </Accordion>
+  <Accordion title="ChainIndexer">
+    Orchestrates one or more Indexers per chain. It runs at least two Indexers concurrently:
+
+    1. **Backfill indexer** — one per contract that has not yet reached the `livefill_threshold`. Each runs independently.
+    2. **Livefill indexer** — a single shared Indexer for all contracts that have caught up to within `livefill_threshold` blocks of the head. Contracts are handed off from backfill to livefill through a channel.
+    3. **Unconfirmed livefill indexer** — covers the range from `confirmations` blocks behind the tip to the tip itself. Data goes into separate transient tables and is periodically flushed.
+  </Accordion>
+</AccordionGroup>
+
+## Helm chart
+
+Scribe ships with a Helm chart at `charts/scribe` in the monorepo. The chart lists OmniRPC and Bitnami MySQL as optional sub-chart dependencies.
+
+```bash
+helm install scribe ./charts/scribe -f values.yaml
+```
+
+<Note>
+  Enable the bundled MySQL dependency by setting `mysql.enabled: true` in your `values.yaml`. Enable the bundled OmniRPC dependency with `omnirpc.enabled: true` to deploy both services together without a separate OmniRPC release.
+</Note>

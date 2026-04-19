@@ -1,0 +1,448 @@
+---
+title: 'Bridge Endpoints — Synapse Protocol REST API'
+description: 'Fetch cross-chain bridge quotes, min/max limits, transaction calldata, and bridge status using the Synapse REST API bridge endpoints.'
+keywords: ['synapse', 'bridge', 'cross-chain', 'rest api', 'bridge quote', 'bridgeTxInfo', 'bridgeTxStatus']
+---
+
+The bridge endpoints cover the full lifecycle of a cross-chain transfer: getting a quote, checking bridgeable limits, building transaction calldata, and confirming that a bridge has completed on the destination chain.
+
+<Note>
+  The `/bridge/v2` endpoint is the preferred route for new integrations. It uses native token decimals for amounts and returns optional transaction calldata directly in the quote response, so a separate call to `/bridgeTxInfo` is not needed.
+</Note>
+
+---
+
+## GET /bridge/v2
+
+Retrieve bridge quotes for moving tokens from one chain to another. Amounts are expressed in the token's native decimals (e.g., `1000000` for 1 USDC). Optionally include `fromSender` and `toRecipient` to receive ready-to-broadcast `callData` in the response.
+
+### Parameters
+
+<ParamField query="fromChainId" type="integer" required>
+  The origin chain ID.
+</ParamField>
+
+<ParamField query="fromToken" type="string" required>
+  The token contract address on the origin chain.
+</ParamField>
+
+<ParamField query="fromAmount" type="string" required>
+  The amount to bridge, in the token's native decimals.
+</ParamField>
+
+<ParamField query="toChainId" type="integer" required>
+  The destination chain ID.
+</ParamField>
+
+<ParamField query="toToken" type="string" required>
+  The token contract address on the destination chain.
+</ParamField>
+
+<ParamField query="fromSender" type="string">
+  The sender address on the origin chain. Required to generate `callData`.
+</ParamField>
+
+<ParamField query="toRecipient" type="string">
+  The recipient address on the destination chain. Required to generate `callData`.
+</ParamField>
+
+<ParamField query="slippage" type="number">
+  Maximum allowed slippage percentage (0–100). Defaults to `0.5`.
+</ParamField>
+
+### Response
+
+Returns an array of quote objects, sorted by best output amount.
+
+<ResponseField name="id" type="string">
+  Unique identifier for the quote (UUIDv7).
+</ResponseField>
+
+<ResponseField name="fromChainId" type="integer">
+  Origin chain ID.
+</ResponseField>
+
+<ResponseField name="fromToken" type="string">
+  Token address on the origin chain.
+</ResponseField>
+
+<ResponseField name="fromAmount" type="string">
+  Input amount in native token decimals.
+</ResponseField>
+
+<ResponseField name="toChainId" type="integer">
+  Destination chain ID.
+</ResponseField>
+
+<ResponseField name="toToken" type="string">
+  Token address on the destination chain.
+</ResponseField>
+
+<ResponseField name="expectedToAmount" type="string">
+  Expected output amount in native token decimals.
+</ResponseField>
+
+<ResponseField name="minToAmount" type="string">
+  Minimum output amount after slippage, in native token decimals.
+</ResponseField>
+
+<ResponseField name="routerAddress" type="string">
+  The router contract address to call.
+</ResponseField>
+
+<ResponseField name="estimatedTime" type="integer">
+  Estimated bridge time in seconds.
+</ResponseField>
+
+<ResponseField name="moduleNames" type="array">
+  Bridge or swap module names used for this route (e.g., `SynapseRFQ`, `SynapseCCTP`).
+</ResponseField>
+
+<ResponseField name="gasDropAmount" type="string">
+  Amount of native token airdropped on the destination chain, in native token decimals.
+</ResponseField>
+
+<ResponseField name="callData" type="object">
+  Transaction data object. Only present when both `fromSender` and `toRecipient` are provided.
+
+  <Expandable title="callData fields">
+    <ResponseField name="to" type="string">Contract address to call.</ResponseField>
+    <ResponseField name="data" type="string">Encoded transaction calldata.</ResponseField>
+    <ResponseField name="value" type="string">Native token amount to send with the transaction.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```bash
+curl "https://api.synapseprotocol.com/bridge/v2?fromChainId=1&toChainId=42161&fromToken=0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48&toToken=0xff970a61a04b1ca14834a43f5de4533ebddb5cc8&fromAmount=1000000000000"
+```
+
+```json
+[
+  {
+    "id": "01920c87-7f14-7cdf-90e1-e13b2d4af55f",
+    "fromChainId": 1,
+    "fromToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+    "fromAmount": "1000000000000",
+    "toChainId": 42161,
+    "toToken": "0xff970a61a04b1ca14834a43f5de4533ebddb5cc8",
+    "expectedToAmount": "999046695719",
+    "minToAmount": "994051462240",
+    "routerAddress": "0x512000a034E154908Efb1eC48579F4ffDb000512",
+    "estimatedTime": 30,
+    "moduleNames": ["SynapseRFQ"],
+    "gasDropAmount": "0",
+    "callData": null
+  }
+]
+```
+
+---
+
+## GET /bridge
+
+<Warning>
+  This is the legacy bridge quote endpoint. New integrations should use `/bridge/v2`, which accepts amounts in native token decimals and returns calldata in the quote response. `/bridge` amounts are in human-readable format and require a separate call to `/bridgeTxInfo` for calldata.
+</Warning>
+
+Retrieve detailed bridge quotes including fee breakdown and the origin/destination query objects needed by the router contract.
+
+### Parameters
+
+<ParamField query="fromChain" type="integer" required>
+  Source chain ID.
+</ParamField>
+
+<ParamField query="toChain" type="integer" required>
+  Destination chain ID.
+</ParamField>
+
+<ParamField query="fromToken" type="string" required>
+  Token contract address on the source chain.
+</ParamField>
+
+<ParamField query="toToken" type="string" required>
+  Token contract address on the destination chain.
+</ParamField>
+
+<ParamField query="amount" type="number" required>
+  Amount of tokens to bridge (human-readable format).
+</ParamField>
+
+<ParamField query="originUserAddress" type="string">
+  The sender's address on the origin chain.
+</ParamField>
+
+<ParamField query="destAddress" type="string">
+  The recipient's address on the destination chain.
+</ParamField>
+
+### Response
+
+<ResponseField name="id" type="string">Quote identifier.</ResponseField>
+<ResponseField name="feeAmount" type="object">Fee amount as a BigNumber `{ type, hex }` object.</ResponseField>
+<ResponseField name="feeConfig" type="object">
+  Fee configuration.
+  <Expandable title="feeConfig fields">
+    <ResponseField name="bridgeFee" type="integer">Bridge fee rate.</ResponseField>
+    <ResponseField name="minFee" type="object">Minimum fee as a BigNumber.</ResponseField>
+    <ResponseField name="maxFee" type="object">Maximum fee as a BigNumber.</ResponseField>
+  </Expandable>
+</ResponseField>
+<ResponseField name="routerAddress" type="string">Router contract address.</ResponseField>
+<ResponseField name="maxAmountOut" type="object">Maximum output amount as a BigNumber.</ResponseField>
+<ResponseField name="maxAmountOutStr" type="string">Maximum output amount as a human-readable string.</ResponseField>
+<ResponseField name="bridgeFeeFormatted" type="string">Bridge fee as a human-readable string.</ResponseField>
+<ResponseField name="estimatedTime" type="integer">Estimated bridge time in seconds.</ResponseField>
+<ResponseField name="bridgeModuleName" type="string">Bridge module name (e.g., `SynapseCCTP`).</ResponseField>
+<ResponseField name="originChainId" type="integer">Origin chain ID.</ResponseField>
+<ResponseField name="destChainId" type="integer">Destination chain ID.</ResponseField>
+<ResponseField name="gasDropAmount" type="object">Gas drop amount as a BigNumber.</ResponseField>
+<ResponseField name="originQuery" type="object">Encoded origin query for the router contract.</ResponseField>
+<ResponseField name="destQuery" type="object">Encoded destination query for the router contract.</ResponseField>
+
+### Example
+
+```bash
+curl "https://api.synapseprotocol.com/bridge?fromChain=1&toChain=42161&fromToken=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48&toToken=0xaf88d065e77c8cC2239327C5EDb3A432268e5831&amount=100"
+```
+
+---
+
+## GET /bridgeLimits
+
+Returns the minimum and maximum amounts that can be bridged for a specific token pair. Use this to validate user input before requesting a quote.
+
+### Parameters
+
+<ParamField query="fromChain" type="integer" required>
+  Source chain ID.
+</ParamField>
+
+<ParamField query="toChain" type="integer" required>
+  Destination chain ID.
+</ParamField>
+
+<ParamField query="fromToken" type="string" required>
+  Token address on the source chain.
+</ParamField>
+
+<ParamField query="toToken" type="string" required>
+  Token address on the destination chain.
+</ParamField>
+
+### Response
+
+<ResponseField name="maxOriginAmount" type="string">
+  Maximum amount of tokens that can be bridged from the origin chain. Returns `null` if limits are unavailable.
+</ResponseField>
+
+<ResponseField name="minOriginAmount" type="string">
+  Minimum amount of tokens that can be bridged from the origin chain. Returns `null` if limits are unavailable.
+</ResponseField>
+
+### Example
+
+```bash
+curl "https://api.synapseprotocol.com/bridgeLimits?fromChain=1&toChain=42161&fromToken=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48&toToken=0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+```
+
+```json
+{
+  "maxOriginAmount": "999600",
+  "minOriginAmount": "4"
+}
+```
+
+---
+
+## GET /bridgeTxInfo
+
+<Warning>
+  This endpoint is deprecated. `/bridge/v2` now returns `callData` directly in the quote response when you supply `fromSender` and `toRecipient`. Use that instead.
+</Warning>
+
+Returns encoded transaction calldata for executing a bridge. Supply the same parameters as `/bridge` plus the required `destAddress`.
+
+### Parameters
+
+<ParamField query="fromChain" type="integer" required>
+  Source chain ID.
+</ParamField>
+
+<ParamField query="fromToken" type="string" required>
+  Token address on the source chain.
+</ParamField>
+
+<ParamField query="toChain" type="integer" required>
+  Destination chain ID.
+</ParamField>
+
+<ParamField query="toToken" type="string" required>
+  Token address on the destination chain.
+</ParamField>
+
+<ParamField query="amount" type="number" required>
+  Amount of tokens to bridge (human-readable).
+</ParamField>
+
+<ParamField query="destAddress" type="string" required>
+  Destination address for the bridged tokens.
+</ParamField>
+
+<ParamField query="originUserAddress" type="string">
+  Sender address on the origin chain.
+</ParamField>
+
+### Response
+
+Returns an array of transaction objects.
+
+<ResponseField name="data" type="string">Encoded transaction calldata.</ResponseField>
+<ResponseField name="to" type="string">Contract address to call.</ResponseField>
+<ResponseField name="value" type="object">Native currency to send with the transaction as a BigNumber `{ type, hex }` object.</ResponseField>
+
+### Example
+
+```bash
+curl "https://api.synapseprotocol.com/bridgeTxInfo?fromChain=1&toChain=42161&fromToken=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48&toToken=0xaf88d065e77c8cC2239327C5EDb3A432268e5831&amount=100&destAddress=0xcc78d2f004c9de9694ff6a9bbdee4793d30f3842"
+```
+
+---
+
+## GET /bridgeTxStatus
+
+Check whether a bridge transaction has been completed on the destination chain. You need the Synapse transaction ID (available from `/synapseTxId`), the destination chain ID, and the bridge module name.
+
+### Parameters
+
+<ParamField query="destChainId" type="integer" required>
+  Destination chain ID.
+</ParamField>
+
+<ParamField query="bridgeModule" type="string" required>
+  Bridge module used for the transaction. One of: `SynapseRFQ`, `SynapseBridge`, `SynapseCCTP`.
+</ParamField>
+
+<ParamField query="synapseTxId" type="string" required>
+  The Synapse transaction ID (obtained from `/synapseTxId`).
+</ParamField>
+
+### Response
+
+<ResponseField name="status" type="boolean">
+  `true` if the bridge transaction has been finalized on the destination chain.
+</ResponseField>
+
+<ResponseField name="toInfo" type="object">
+  Destination transaction details, present when `status` is `true`.
+
+  <Expandable title="toInfo fields">
+    <ResponseField name="chainID" type="integer">Destination chain ID.</ResponseField>
+    <ResponseField name="address" type="string">Recipient address.</ResponseField>
+    <ResponseField name="txnHash" type="string">Transaction hash on the destination chain.</ResponseField>
+    <ResponseField name="USDValue" type="number">USD value of the transferred amount.</ResponseField>
+    <ResponseField name="tokenSymbol" type="string">Symbol of the token received.</ResponseField>
+    <ResponseField name="formattedTime" type="string">Timestamp of the destination transaction.</ResponseField>
+    <ResponseField name="formattedValue" type="string">Human-readable token amount received.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```bash
+curl "https://api.synapseprotocol.com/bridgeTxStatus?destChainId=10&bridgeModule=SynapseRFQ&synapseTxId=0x812516c5477aeeb4361ecbdd561abcd10f779a0fce22bad13635b8cae088760a"
+```
+
+```json
+{
+  "status": true,
+  "toInfo": {
+    "chainID": 10,
+    "address": "0xRL3Bab0e4c09Ff447863f507E16090A9F22792d2",
+    "txnHash": "0x4eff784e85df5265dcc8e3c30b9df4b5c8a0c940300f6d8ad7ed737e9beb6fab",
+    "USDValue": 1.79848,
+    "tokenSymbol": "USDC",
+    "formattedTime": "2024-09-01 17:10:41 +0000 UTC",
+    "formattedValue": "1.797684"
+  }
+}
+```
+
+---
+
+## GET /destinationTx
+
+Returns the status of a bridge transaction and both the origin and destination transaction details, looked up by the origin chain's transaction hash.
+
+### Parameters
+
+<ParamField query="originChainId" type="integer" required>
+  Origin chain ID where the bridge transaction was initiated.
+</ParamField>
+
+<ParamField query="txHash" type="string" required>
+  Transaction hash on the origin chain.
+</ParamField>
+
+### Response
+
+<ResponseField name="status" type="string">
+  Transaction status (e.g., `"completed"`).
+</ResponseField>
+
+<ResponseField name="fromInfo" type="object">
+  Origin transaction details.
+
+  <Expandable title="fromInfo fields">
+    <ResponseField name="chainID" type="integer">Origin chain ID.</ResponseField>
+    <ResponseField name="address" type="string">Sender address.</ResponseField>
+    <ResponseField name="txnHash" type="string">Origin transaction hash.</ResponseField>
+    <ResponseField name="USDValue" type="number">USD value of the transfer.</ResponseField>
+    <ResponseField name="tokenSymbol" type="string">Token symbol on the origin chain.</ResponseField>
+    <ResponseField name="blockNumber" type="integer">Block number of the origin transaction.</ResponseField>
+    <ResponseField name="formattedTime" type="string">Timestamp of the origin transaction.</ResponseField>
+    <ResponseField name="formattedValue" type="string">Human-readable token amount sent.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="toInfo" type="object">
+  Destination transaction details. Fields match `fromInfo`.
+</ResponseField>
+
+### Example
+
+```bash
+curl "https://api.synapseprotocol.com/destinationTx?originChainId=8453&txHash=0x13486d9eaefd68de6a20b704d70deb8436effbac1f77fddfc0c7ef14f08e96c3"
+```
+
+```json
+{
+  "status": "completed",
+  "fromInfo": {
+    "chainID": 8453,
+    "address": "0x6eA4207627aAf2Ef86642eD8B331579b606471c3",
+    "txnHash": "0x13486d9eaefd68de6a20b704d70deb8436effbac1f77fddfc0c7ef14f08e96c3",
+    "USDValue": "11660.93019",
+    "tokenSymbol": "USDC",
+    "blockNumber": "19857812",
+    "formattedTime": "2024-09-16 16:42:51 +0000 UTC",
+    "formattedValue": "11637.654884"
+  },
+  "toInfo": {
+    "chainID": 42161,
+    "address": "0xfC8f27Bcf34FfD52869ffa4A5A6B9b0A872281Ad",
+    "txnHash": "0xe26be8f4296c14dc8da6ef92d39c1d20577a43704bfb0b2cea5ee2f516be0f4e",
+    "USDValue": 11660.92558,
+    "tokenSymbol": "USDC",
+    "blockNumber": 254173724,
+    "formattedTime": "2024-09-16 16:42:55 +0000 UTC",
+    "formattedValue": "11637.650281"
+  }
+}
+```
+
+<Tip>
+  To look up a transaction by its Synapse ID rather than an origin hash, use `/bridgeTxStatus` instead.
+</Tip>

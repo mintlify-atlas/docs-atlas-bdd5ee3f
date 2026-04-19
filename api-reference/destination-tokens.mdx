@@ -1,0 +1,83 @@
+---
+title: "Destination tokens: GET /destinationTokens"
+description: "Discover which tokens and chains a user can bridge to from a given source token using GET /destinationTokens, which returns all valid bridge destinations."
+---
+
+When building a bridge UI, call `GET /destinationTokens` to populate the list of tokens and chains a user can receive after bridging from a given source. The endpoint takes a source chain and token as input and returns every valid destination token across all supported chains. Use the returned `chainId` and `address` values as the `toChain`/`toToken` parameters in subsequent calls to [GET /bridge](/api-reference/bridge).
+
+```
+GET https://api.synapseprotocol.com/destinationTokens
+```
+
+## Query parameters
+
+<ParamField query="fromChain" type="integer" required>
+  Chain ID of the source chain.
+</ParamField>
+
+<ParamField query="fromToken" type="string" required>
+  Contract address of the token on the source chain.
+</ParamField>
+
+## Response fields
+
+The endpoint returns an array. Each element describes one possible destination token.
+
+<ResponseField name="symbol" type="string">
+  Token ticker symbol (e.g. `"USDC"`, `"USDT"`, `"crvUSD"`).
+</ResponseField>
+
+<ResponseField name="chainId" type="string">
+  Chain ID of the destination chain where this token can be received.
+</ResponseField>
+
+<ResponseField name="address" type="string">
+  Contract address of the destination token on the destination chain.
+</ResponseField>
+
+## Example request
+
+```bash
+curl "https://api.synapseprotocol.com/destinationTokens\
+?fromChain=1\
+&fromToken=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+```
+
+## Example response
+
+```json
+[
+  {
+    "symbol": "USDC",
+    "chainId": "1",
+    "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+  },
+  {
+    "symbol": "USDT",
+    "chainId": "42161",
+    "address": "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9"
+  },
+  {
+    "symbol": "crvUSD",
+    "chainId": "8453",
+    "address": "0x417Ac0e078398C154EdFadD9Ef675d30Be60Af93"
+  }
+]
+```
+
+## Error response
+
+```json
+{
+  "error": {
+    "value": "100",
+    "message": "Unsupported fromChain",
+    "field": "fromChain",
+    "location": "query"
+  }
+}
+```
+
+<Tip>
+  Use this endpoint to build your token selector dropdowns. After the user selects a source chain and token, call `/destinationTokens` to populate the destination token list. Then pass the chosen destination `chainId` and `address` directly into `GET /bridge` or `GET /bridge/v2` as `toChain`/`toChainId` and `toToken`.
+</Tip>

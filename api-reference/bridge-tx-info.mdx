@@ -1,0 +1,115 @@
+---
+title: "Bridge transaction calldata: GET /bridgeTxInfo"
+description: "GET /bridgeTxInfo returns encoded calldata for a bridge transfer. Deprecated — use GET /bridge/v2 with fromSender and toRecipient to get callData inline."
+---
+
+<Warning>
+  `GET /bridgeTxInfo` is deprecated. The `GET /bridge` endpoint now returns equivalent transaction data directly in each quote object when `destAddress` and `originUserAddress` are supplied. New integrations should use [GET /bridge](/api-reference/bridge) and read `callData` from the quote response instead.
+</Warning>
+
+`GET /bridgeTxInfo` was originally designed as a second round-trip after `GET /bridge`: first fetch quotes to determine the best route, then call this endpoint with the chosen parameters to receive the ABI-encoded transaction payload. The response is an array of transaction objects — one per available bridge route — that can be passed directly to a wallet's `eth_sendTransaction` method.
+
+```
+GET https://api.synapseprotocol.com/bridgeTxInfo
+```
+
+## Query parameters
+
+<ParamField query="fromChain" type="integer" required>
+  Chain ID of the source chain.
+</ParamField>
+
+<ParamField query="toChain" type="integer" required>
+  Chain ID of the destination chain.
+</ParamField>
+
+<ParamField query="fromToken" type="string" required>
+  Contract address of the token on the source chain.
+</ParamField>
+
+<ParamField query="toToken" type="string" required>
+  Contract address of the token on the destination chain.
+</ParamField>
+
+<ParamField query="amount" type="number" required>
+  Amount of tokens to bridge in human-readable format (e.g. `100` for 100 USDC).
+</ParamField>
+
+<ParamField query="destAddress" type="string" required>
+  Destination address that will receive the bridged tokens.
+</ParamField>
+
+<ParamField query="originUserAddress" type="string">
+  Address of the user on the origin chain. Required when bridging from a smart contract wallet so that the correct approval target is encoded.
+</ParamField>
+
+## Response fields
+
+The endpoint returns an array of transaction objects, one for each available bridge route.
+
+<ResponseField name="to" type="string">
+  Address of the router contract to call on the origin chain.
+</ResponseField>
+
+<ResponseField name="data" type="string">
+  ABI-encoded calldata for the bridge transaction.
+</ResponseField>
+
+<ResponseField name="value" type="object">
+  Amount of native currency (e.g. ETH) to attach to the transaction, as a BigNumber object.
+
+  <Expandable title="value fields">
+    <ResponseField name="type" type="string">
+      Always `"BigNumber"`.
+    </ResponseField>
+    <ResponseField name="hex" type="string">
+      Hexadecimal representation of the value in wei.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example request
+
+```bash
+curl "https://api.synapseprotocol.com/bridgeTxInfo\
+?fromChain=1\
+&toChain=42161\
+&fromToken=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\
+&toToken=0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9\
+&amount=1000000\
+&destAddress=0xcc78d2f004c9de9694ff6a9bbdee4793d30f3842"
+```
+
+## Example response
+
+```json
+[
+  {
+    "data": "0xc2288147000000000000000000000000abb4f7...",
+    "to": "0xd5a597d6e7ddf373a92C8f477DAAA673b0902F48",
+    "value": {
+      "type": "BigNumber",
+      "hex": "0x00"
+    }
+  }
+]
+```
+
+## Executing the transaction
+
+Once you have the transaction object, send it using an ethers.js signer or equivalent:
+
+```javascript
+const provider = new ethers.providers.Web3Provider(window.ethereum);
+const signer = provider.getSigner();
+
+const [txData] = await fetch(
+  'https://api.synapseprotocol.com/bridgeTxInfo?fromChain=1&toChain=42161' +
+  '&fromToken=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' +
+  '&toToken=0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9' +
+  '&amount=1000000&destAddress=0xYourAddress'
+).then(r => r.json());
+
+const tx = await signer.sendTransaction(txData);
+await tx.wait();
+```

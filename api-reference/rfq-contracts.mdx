@@ -1,0 +1,151 @@
+---
+title: "RFQ contract registry and transaction lookup"
+description: "GET /contracts lists FastBridge addresses per chain. GET /transaction-id/{id} returns full RFQ lifecycle data: relay, proof, claim, refund, and dispute records."
+---
+
+The RFQ system's contract registry and transaction lookup endpoints give relayers and integrators access to the on-chain addresses they need for approvals and direct contract calls, as well as a way to audit the full lifecycle of any RFQ transaction.
+
+---
+
+## GET /contracts
+
+```
+GET https://api.synapseprotocol.com/contracts
+```
+
+Returns the deployed FastBridge contract address for every chain that participates in the Synapse RFQ system. Relayers use these addresses when submitting quotes (the `origin_fast_bridge_address` and `dest_fast_bridge_address` fields) and when building on-chain relay transactions.
+
+### Query parameters
+
+This endpoint takes no query parameters.
+
+### Response fields
+
+An array containing a single object.
+
+<ResponseField name="contracts" type="object">
+  A map of chain ID (as a string or integer key) to the FastBridge contract address deployed on that chain.
+
+  **Example:** `{ "1": "0xFastBridgeOnEthereum", "42161": "0xFastBridgeOnArbitrum" }`
+</ResponseField>
+
+### Example request
+
+```bash
+curl "https://api.synapseprotocol.com/contracts"
+```
+
+### Example response
+
+```json
+[
+  {
+    "contracts": {
+      "1": "0x5523D3c98809DdDB82C686E152F5C58B1B0fB59E",
+      "10": "0x5523D3c98809DdDB82C686E152F5C58B1B0fB59E",
+      "42161": "0x5523D3c98809DdDB82C686E152F5C58B1B0fB59E",
+      "8453": "0x5523D3c98809DdDB82C686E152F5C58B1B0fB59E"
+    }
+  }
+]
+```
+
+<Note>
+  The FastBridge contract address is often the same across chains but may differ. Always read from this endpoint rather than hard-coding addresses in your integration.
+</Note>
+
+---
+
+## GET /transaction-id/{transactionId}
+
+```
+GET https://api.synapseprotocol.com/transaction-id/{transactionId}
+```
+
+Retrieves the full lifecycle record of an RFQ transaction by its transaction ID or origin chain transaction hash. The response includes deposit, relay, proof, claim, refund, and dispute data when available — giving a complete audit trail for any bridge operation processed through the RFQ system.
+
+### Path parameters
+
+<ParamField query="transactionId" type="string" required>
+  The unique RFQ transaction identifier, or the origin chain transaction hash (prefixed with `0x`). Both formats are accepted.
+</ParamField>
+
+### Response fields
+
+<ResponseField name="Bridge" type="object">
+  General transaction metadata common to all lifecycle stages.
+</ResponseField>
+
+<ResponseField name="BridgeRequest" type="object">
+  Deposit information captured when the user submitted the bridge request on the origin chain.
+</ResponseField>
+
+<ResponseField name="BridgeRelay" type="object">
+  Relay information recorded when a relayer fulfilled the transfer on the destination chain. `null` if not yet relayed.
+</ResponseField>
+
+<ResponseField name="BridgeProof" type="object">
+  Proof submission data captured when the relayer submitted proof of relay on the origin chain. `null` if not yet proven.
+</ResponseField>
+
+<ResponseField name="BridgeClaim" type="object">
+  Claim data recorded when the relayer claimed their reimbursement. `null` if not yet claimed.
+</ResponseField>
+
+<ResponseField name="BridgeRefund" type="object">
+  Refund data recorded if the bridge request was refunded to the user. `null` if not refunded.
+</ResponseField>
+
+<ResponseField name="BridgeDispute" type="object">
+  Dispute information if the transaction was disputed. `null` if no dispute exists.
+</ResponseField>
+
+### Example request
+
+```bash
+curl "https://api.synapseprotocol.com/transaction-id/0x812516c5477aeeb4361ecbdd561abcd10f779a0fce22bad13635b8cae088760a"
+```
+
+### Example response
+
+```json
+{
+  "Bridge": {
+    "transactionId": "0x812516c5477aeeb4361ecbdd561abcd10f779a0fce22bad13635b8cae088760a",
+    "originChainId": 1,
+    "destChainId": 42161
+  },
+  "BridgeRequest": {
+    "txHash": "0xoriginTxHash",
+    "sender": "0xUserAddress",
+    "originToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+    "originAmount": "1000000000",
+    "timestamp": "2024-09-01T17:00:00Z"
+  },
+  "BridgeRelay": {
+    "txHash": "0xdestTxHash",
+    "relayer": "0xRelayerAddress",
+    "destToken": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+    "destAmount": "999000000",
+    "timestamp": "2024-09-01T17:00:32Z"
+  },
+  "BridgeProof": {
+    "txHash": "0xproofTxHash",
+    "timestamp": "2024-09-01T17:01:00Z"
+  },
+  "BridgeClaim": {
+    "txHash": "0xclaimTxHash",
+    "timestamp": "2024-09-01T17:31:00Z"
+  },
+  "BridgeRefund": null,
+  "BridgeDispute": null
+}
+```
+
+### 404 response
+
+```json
+{
+  "message": "transaction not found"
+}
+```

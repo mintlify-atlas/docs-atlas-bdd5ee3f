@@ -1,0 +1,120 @@
+---
+title: "Bridge SDK Quickstart: Install and Send Your First Quote"
+description: "Install @synapsecns/sdk-router from GitHub Packages, initialize SynapseSDK with chain providers, and fetch your first cross-chain bridge quote in minutes."
+---
+
+The Synapse Bridge SDK (`@synapsecns/sdk-router`) gives you programmatic access to cross-chain bridging and on-chain swaps across 19 chains. It handles quote fetching, transaction construction, and status tracking — so your application only needs to manage providers and signers.
+
+## Prerequisites
+
+- Node.js `>=18.17.0`
+- An Ethereum-compatible provider (ethers.js) for each chain you want to support
+- A GitHub account with access to GitHub Packages
+
+## Installation
+
+The package is published to [GitHub Packages](https://github.com/synapsecns/sanguine/packages). Before installing, configure your `.npmrc` to route `@synapsecns` scoped packages to the GitHub registry:
+
+```bash .npmrc
+@synapsecns:registry=https://npm.pkg.github.com
+```
+
+Then install the package using your preferred package manager:
+
+<CodeGroup>
+
+```bash npm
+npm install @synapsecns/sdk-router
+```
+
+```bash yarn
+yarn add @synapsecns/sdk-router
+```
+
+```bash pnpm
+pnpm add @synapsecns/sdk-router
+```
+
+</CodeGroup>
+
+## Initialize the SDK
+
+Create a `SynapseSDK` instance by passing parallel arrays of chain IDs and their corresponding ethers.js providers. The arrays must be the same length — each index pairs a chain ID with its provider.
+
+```typescript
+import { SynapseSDK } from '@synapsecns/sdk-router'
+import { JsonRpcProvider } from '@ethersproject/providers'
+
+// Create providers for Ethereum, Optimism, and Arbitrum
+const ethereumProvider = new JsonRpcProvider('<ethereum-provider-url>')
+const optimismProvider = new JsonRpcProvider('<optimism-provider-url>')
+const arbitrumProvider = new JsonRpcProvider('<arbitrum-provider-url>')
+
+// Chain IDs and providers must be in matching order
+const chainIds = [1, 10, 42161]
+const providers = [ethereumProvider, optimismProvider, arbitrumProvider]
+
+const synapseSDK = new SynapseSDK(chainIds, providers)
+```
+
+<Note>
+  Provider URLs can also be passed as plain strings instead of `Provider` instances. The SDK will construct a `JsonRpcProvider` from each string automatically.
+</Note>
+
+## Fetch your first bridge quote
+
+With the SDK initialized, call `allBridgeQuotes()` to retrieve available routes for a given token pair and amount. The example below fetches quotes for sending 1,000 USDC from Ethereum to Arbitrum as USDT.
+
+```typescript
+import { BridgeQuote } from '@synapsecns/sdk-router'
+
+const originChainId = 1      // Ethereum
+const destChainId = 42161    // Arbitrum
+
+// USDC on Ethereum
+const tokenIn = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'
+// USDT on Arbitrum
+const tokenOut = '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9'
+// 1,000 USDC (6 decimals)
+const amountIn = '1000000000'
+
+const bridgeQuotes: BridgeQuote[] = await synapseSDK.allBridgeQuotes(
+  originChainId,
+  destChainId,
+  tokenIn,
+  tokenOut,
+  amountIn
+)
+
+// Quotes are sorted by maxAmountOut descending — first is best
+const bestQuote = bridgeQuotes[0]
+console.log('Best route:', bestQuote.bridgeModuleName)
+console.log('Expected out:', bestQuote.maxAmountOut.toString())
+```
+
+<Tip>
+  For native gas tokens such as ETH or AVAX, use the address `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE` in place of the token address.
+</Tip>
+
+## Environment variables
+
+| Variable      | Description              | Default                            |
+| ------------- | ------------------------ | ---------------------------------- |
+| `RFQ_API_URL` | URL for the RFQ API      | `https://rfq-api.omnirpc.io`       |
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Full bridging workflow" icon="arrow-right-arrow-left" href="/sdk/bridging">
+    Apply slippage, build the transaction payload, and track bridge status end to end.
+  </Card>
+  <Card title="On-chain swapping" icon="arrows-rotate" href="/sdk/swapping">
+    Get swap quotes and execute single-chain token swaps through Synapse routers.
+  </Card>
+  <Card title="Bridge Widget" icon="browser" href="/sdk/bridge-widget">
+    Drop a fully functional bridge UI into your React app with a single component.
+  </Card>
+  <Card title="Architecture overview" icon="map" href="/architecture">
+    Understand the bridge modules and router contracts that power the SDK.
+  </Card>
+</CardGroup>

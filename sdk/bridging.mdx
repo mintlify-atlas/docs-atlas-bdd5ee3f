@@ -1,0 +1,203 @@
+---
+title: "Cross-Chain Bridging with the Synapse Bridge SDK"
+description: "Fetch bridge quotes across all supported modules, apply slippage, construct and submit bridge transactions, and track completion status using SynapseSDK."
+---
+
+Bridging moves tokens from one chain to another. The Synapse SDK handles the complexity of routing across multiple bridge modules, each with different supported token pairs and latency profiles. Your application fetches quotes, picks the best one, and submits a transaction — the SDK takes care of everything in between.
+
+## Router deployments
+
+Three bridge modules are available across supported chains. Each is deployed at a consistent address, with one exception noted for Blast.
+
+| Bridge module   | Chain       | Address                                        |
+| --------------- | ----------- | ---------------------------------------------- |
+| SynapseBridge   | All[^1]     | `0x7E7A0e201FD38d3ADAA9523Da6C109a07118C96a`   |
+| SynapseBridge   | Blast       | `0x0000000000365b1d5B142732CF4d33BcddED21Fc`   |
+| SynapseCCTP     | All         | `0xd5a597d6e7ddf373a92C8f477DAAA673b0902F48`   |
+| SynapseRFQ      | All         | `0x00cD000000003f7F682BE4813200893d4e690000`   |
+
+[^1]: Except Blast.
+
+<Warning>
+  Two older deployments are deprecated and must not be used: `0x7E7A0e201FD38d3ADAA9523Da6C109a07118C96a` on Blast (SynapseBridge) and `0x0000000000489d89D2B233D3375C045dfD05745F` (SynapseRFQ). Always use the addresses in the table above.
+</Warning>
+
+## Full bridging workflow
+
+<Steps>
+  <Step title="Fetch bridge quotes">
+    Call `allBridgeQuotes()` with the origin chain, destination chain, input token, output token, and amount. The method queries all available bridge modules and returns a sorted list.
+
+    ```typescript
+    import { SynapseSDK, BridgeQuote } from '@synapsecns/sdk-router'
+
+    const bridgeQuotes: BridgeQuote[] = await synapseSDK.allBridgeQuotes(
+      originChainId,   // e.g. 1 (Ethereum)
+      destChainId,     // e.g. 42161 (Arbitrum)
+      tokenIn,         // address of input token on origin chain
+      tokenOut,        // address of output token on destination chain
+      amountIn,        // amount in origin token decimals
+      {
+        // Deadline for the transaction to be initiated on origin chain (optional)
+        deadline: 1234567890,
+        // Modules to exclude from results (optional, empty = all included)
+        excludedModules: ['SynapseBridge'],
+        // Required when a smart contract initiates the bridge on behalf of the user
+        originUserAddress: '0x1234567890abcdef1234567890abcdef12345678',
+      }
+    )
+    ```
+
+    Quotes are returned sorted by `maxAmountOut` descending — the first element is the best available route.
+
+    <Note>
+      Always provide `originUserAddress` when a smart contract (such as a Safe wallet or bridge aggregator) will call the router on the user's behalf.
+    </Note>
+  </Step>
+
+  <Step title="Inspect the BridgeQuote object">
+    Each `BridgeQuote` contains everything needed to construct and submit the transaction.
+
+    ```typescript
+    type BridgeQuote = {
+      id: string                // Unique identifier for the quote
+      routerAddress: string     // Router contract the user approves and calls
+      maxAmountOut: BigNumber   // Expected tokens received on destination chain
+      originQuery: Query        // Swap/route details for origin chain
+      destQuery: Query          // Swap/route details for destination chain
+      estimatedTime: number     // Estimated completion time in seconds
+      bridgeModuleName: string  // 'SynapseBridge', 'SynapseCCTP', or 'SynapseRFQ'
+      gasDropAmount: BigNumber  // Native gas tokens airdropped on destination
+      originChainId: number
+      destChainId: number
+      feeAmount: BigNumber      // Fee paid for the bridge operation
+    }
+    ```
+  </Step>
+
+  <Step title="Apply slippage (recommended)">
+    Quotes are returned without slippage applied. Call `applyBridgeSlippage()` before building the transaction to protect against price movement. The default slippage is 10 basis points (0.1%).
+
+    ```typescript
+    const { originQuery, destQuery } = synapseSDK.applyBridgeSlippage(
+      bridgeQuote.bridgeModuleName,
+      bridgeQuote.originQuery,
+      bridgeQuote.destQuery,
+      // Optional: numerator (defaults to 10)
+      slipNumerator,
+      // Optional: denominator (defaults to 10000)
+      slipDenominator
+    )
+    ```
+
+    This method returns new `Query` objects without modifying the originals, so you can adjust slippage without re-fetching quotes.
+  </Step>
+
+  <Step title="Modify deadline (optional)">
+    Quotes already include deadlines set by each module. You can override the origin deadline if needed. Avoid changing the destination deadline, as its behavior on expiry varies by module.
+
+    ```typescript
+    const { originQuery, destQuery } = synapseSDK.applyBridgeDeadline(
+      bridgeQuote.bridgeModuleName,
+      bridgeQuote.originQuery,
+      bridgeQuote.destQuery,
+      // Optional: new origin chain deadline
+      originDeadline,
+      // Optional: new destination chain deadline (not recommended to change)
+      destDeadline
+    )
+    ```
+  </Step>
+
+  <Step title="Approve token spend">
+    Before submitting the bridge transaction, the user must approve `routerAddress` to spend `amountIn` of `tokenIn` on the origin chain. This is a standard ERC-20 approval. Native tokens (ETH, AVAX, etc.) do not require approval.
+  </Step>
+
+  <Step title="Build and submit the transaction">
+    Call `bridge()` to get the populated transaction payload, then submit it with a signer.
+
+    ```typescript
+    const { data, to, value } = await synapseSDK.bridge(
+      addressTo,                  // Recipient on destination chain
+      bridgeQuote.routerAddress,
+      originChainId,
+      destChainId,
+      tokenIn,
+      amountIn,
+      originQuery,                // From applyBridgeSlippage()
+      destQuery
+    )
+
+    // Submit using an ethers.js Signer
+    const tx = await signer.sendTransaction({ to, data, value })
+    await tx.wait()
+    ```
+
+    <Info>
+      The `bridge()` method only constructs the transaction payload — it does not submit it. Use the signer of your choice (MetaMask, WalletConnect, etc.) to send the transaction.
+    </Info>
+  </Step>
+
+  <Step title="Track bridge status">
+    First retrieve the Synapse transaction ID from the origin chain transaction hash:
+
+    ```typescript
+    const synapseTxId = await synapseSDK.getSynapseTxId(
+      originChainId,
+      bridgeQuote.bridgeModuleName,
+      tx.hash
+    )
+    ```
+
+    Then poll for completion on the destination chain:
+
+    ```typescript
+    const isComplete: boolean = await synapseSDK.getBridgeTxStatus(
+      destChainId,
+      bridgeQuote.bridgeModuleName,
+      synapseTxId
+    )
+    ```
+
+    The `synapseTxId` is stable — you can store it once and poll `getBridgeTxStatus()` repeatedly without re-fetching.
+  </Step>
+</Steps>
+
+## Using native gas tokens
+
+For native tokens such as ETH, AVAX, or MATIC, use the sentinel address in place of the ERC-20 token address for `tokenIn` or `tokenOut`:
+
+```typescript
+const NATIVE_TOKEN_ADDRESS = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'
+```
+
+## Available bridge modules
+
+<AccordionGroup>
+  <Accordion title="SynapseBridge">
+    The original Synapse bridge module. Deployed at `0x7E7A0e201FD38d3ADAA9523Da6C109a07118C96a` on all chains except Blast, where it uses `0x0000000000365b1d5B142732CF4d33BcddED21Fc`.
+  </Accordion>
+  <Accordion title="SynapseCCTP">
+    Uses the Circle Cross-Chain Transfer Protocol for USDC bridging. Deployed at `0xd5a597d6e7ddf373a92C8f477DAAA673b0902F48` on all supported chains.
+  </Accordion>
+  <Accordion title="SynapseRFQ">
+    A request-for-quote module that sources liquidity from market makers. Deployed at `0x00cD000000003f7F682BE4813200893d4e690000` on all supported chains. Uses the RFQ API (configurable via `RFQ_API_URL`).
+  </Accordion>
+</AccordionGroup>
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="SDK quickstart" icon="bolt" href="/sdk/quickstart">
+    Install the SDK and fetch your first quote.
+  </Card>
+  <Card title="On-chain swapping" icon="arrows-rotate" href="/sdk/swapping">
+    Execute single-chain swaps through Synapse routers.
+  </Card>
+  <Card title="REST API overview" icon="server" href="/rest-api/overview">
+    Access bridging quotes and status via HTTP endpoints.
+  </Card>
+  <Card title="API reference: bridge" icon="code" href="/api-reference/bridge">
+    Full parameter reference for bridge endpoints.
+  </Card>
+</CardGroup>

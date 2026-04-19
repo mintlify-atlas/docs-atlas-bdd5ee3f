@@ -1,0 +1,219 @@
+---
+title: "Same-chain swap quotes: GET /swap and /swap/v2"
+description: "GET /swap/v2 returns same-chain swap quotes in native decimals with optional callData. GET /swap is the legacy form using human-readable amounts and swapTxInfo."
+---
+
+The swap endpoints return quotes for exchanging one token for another within a single chain — no bridging involved. Use `GET /swap/v2` for new integrations: it accepts amounts in native token decimals, returns a UUIDv7 quote identifier, and optionally returns ready-to-sign transaction calldata when you include a `toRecipient` address. The legacy `GET /swap` endpoint accepts human-readable amounts and returns lower-level `query` objects used by the router contract.
+
+---
+
+## GET /swap/v2 (preferred)
+
+```
+GET https://api.synapseprotocol.com/swap/v2
+```
+
+Returns a single swap quote for the specified token pair on the given chain. Amounts are expressed in the token's native decimals throughout.
+
+### Query parameters
+
+<ParamField query="chainId" type="integer" required>
+  Chain ID where the swap will be executed.
+</ParamField>
+
+<ParamField query="fromToken" type="string" required>
+  Contract address of the token you are swapping from.
+</ParamField>
+
+<ParamField query="fromAmount" type="string" required>
+  Amount of the input token to swap, in the token's native decimals (e.g. `"1000000"` for 1 USDC).
+</ParamField>
+
+<ParamField query="toToken" type="string" required>
+  Contract address of the token you want to receive.
+</ParamField>
+
+<ParamField query="toRecipient" type="string">
+  Address that will receive the swapped tokens. When provided, the response includes a populated `callData` object ready to send.
+</ParamField>
+
+<ParamField query="slippage" type="number">
+  Maximum allowed slippage as a percentage (0–100). Defaults to `0.5`.
+</ParamField>
+
+### Response fields
+
+<ResponseField name="id" type="string">
+  UUIDv7 identifier for this swap quote.
+</ResponseField>
+
+<ResponseField name="chainId" type="integer">
+  Chain ID where the swap occurs.
+</ResponseField>
+
+<ResponseField name="fromToken" type="string">
+  Contract address of the input token.
+</ResponseField>
+
+<ResponseField name="fromAmount" type="string">
+  Input amount in the token's native decimals.
+</ResponseField>
+
+<ResponseField name="toToken" type="string">
+  Contract address of the output token.
+</ResponseField>
+
+<ResponseField name="expectedToAmount" type="string">
+  Expected output amount in the output token's native decimals before slippage.
+</ResponseField>
+
+<ResponseField name="minToAmount" type="string">
+  Minimum output amount guaranteed after applying the slippage tolerance, in the output token's native decimals.
+</ResponseField>
+
+<ResponseField name="routerAddress" type="string">
+  Address of the Synapse router contract to call.
+</ResponseField>
+
+<ResponseField name="moduleNames" type="array">
+  Names of the swap modules used for this route (e.g. `["DefaultPools"]`).
+</ResponseField>
+
+<ResponseField name="callData" type="object">
+  Ready-to-sign transaction object. Only present when `toRecipient` was supplied; otherwise `null`.
+
+  <Expandable title="callData fields">
+    <ResponseField name="to" type="string">
+      Router contract address to send the transaction to.
+    </ResponseField>
+    <ResponseField name="data" type="string">
+      ABI-encoded swap calldata.
+    </ResponseField>
+    <ResponseField name="value" type="string">
+      Amount of native currency to attach, in wei. Typically `"0"` for ERC-20 swaps.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example request
+
+```bash
+curl "https://api.synapseprotocol.com/swap/v2\
+?chainId=1\
+&fromToken=0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48\
+&fromAmount=1000000\
+&toToken=0xdac17f958d2ee523a2206206994597c13d831ec7\
+&toRecipient=0xYourAddress"
+```
+
+### Example response
+
+```json
+{
+  "id": "01920c87-7f14-7cdf-90e1-e13b2d4af55f",
+  "chainId": 1,
+  "fromToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+  "fromAmount": "1000000",
+  "toToken": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+  "expectedToAmount": "999746386",
+  "minToAmount": "994747654",
+  "routerAddress": "0x512000a034E154908Efb1eC48579F4ffDb000512",
+  "moduleNames": ["DefaultPools"],
+  "callData": {
+    "to": "0x512000a034E154908Efb1eC48579F4ffDb000512",
+    "data": "0x...",
+    "value": "0"
+  }
+}
+```
+
+---
+
+## GET /swap (legacy)
+
+```
+GET https://api.synapseprotocol.com/swap
+```
+
+The original single-chain swap endpoint. It accepts human-readable token amounts and returns low-level `query` parameters used by the Synapse router. Prefer `/swap/v2` for new integrations.
+
+### Query parameters
+
+<ParamField query="chain" type="integer" required>
+  Chain ID where the swap will occur.
+</ParamField>
+
+<ParamField query="fromToken" type="string" required>
+  Contract address of the input token.
+</ParamField>
+
+<ParamField query="toToken" type="string" required>
+  Contract address of the output token.
+</ParamField>
+
+<ParamField query="amount" type="number" required>
+  Amount to swap in human-readable format (e.g. `1000` for 1000 USDC).
+</ParamField>
+
+<ParamField query="address" type="string" required>
+  Ethereum address of the user performing the swap.
+</ParamField>
+
+### Response fields
+
+<ResponseField name="routerAddress" type="string">
+  Address of the router contract.
+</ResponseField>
+
+<ResponseField name="maxAmountOut" type="string">
+  Human-readable maximum output amount (e.g. `"999.746386"`).
+</ResponseField>
+
+<ResponseField name="query" type="object">
+  Low-level router query object for building the transaction manually.
+
+  <Expandable title="query fields">
+    <ResponseField name="swapAdapter" type="string">
+      Address of the swap adapter contract.
+    </ResponseField>
+    <ResponseField name="tokenOut" type="string">
+      Address of the output token.
+    </ResponseField>
+    <ResponseField name="minAmountOut" type="object">
+      Minimum output amount as a BigNumber (`{ type: "BigNumber", hex: "0x..." }`).
+    </ResponseField>
+    <ResponseField name="deadline" type="object">
+      Transaction deadline as a BigNumber Unix timestamp.
+    </ResponseField>
+    <ResponseField name="rawParams" type="string">
+      ABI-encoded swap parameters for the adapter.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example request
+
+```bash
+curl "https://api.synapseprotocol.com/swap\
+?chain=1\
+&fromToken=0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48\
+&toToken=0xdAC17F958D2ee523a2206206994597C13D831ec7\
+&amount=1000\
+&address=0xYourAddress"
+```
+
+### Example response
+
+```json
+{
+  "routerAddress": "0x7E7A0e201FD38d3ADAA9523Da6C109a07118C96a",
+  "maxAmountOut": "999.746386",
+  "query": {
+    "swapAdapter": "0x7E7A0e201FD38d3ADAA9523Da6C109a07118C96a",
+    "tokenOut": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "minAmountOut": { "type": "BigNumber", "hex": "0x3b96eb52" },
+    "deadline": { "type": "BigNumber", "hex": "0x66ecb470" },
+    "rawParams": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001116898dda4015ed8ddefb84b6e8bc24528af2d8..."
+  }
+}
+```

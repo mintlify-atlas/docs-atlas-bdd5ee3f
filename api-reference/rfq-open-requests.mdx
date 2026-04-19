@@ -1,0 +1,107 @@
+---
+title: "Open RFQ requests: GET /open_quote_requests"
+description: "Retrieve all open bridge quote requests in Received or Pending status that are waiting for relayers to respond using GET /open_quote_requests."
+---
+
+When a user initiates an active RFQ via `PUT /rfq`, a quote request is created and broadcast to the relayer network. Relayers monitor `GET /open_quote_requests` to discover requests that need a response. A request remains open as long as it is in `Received` or `Pending` status — meaning no relayer has committed to fulfilling it yet. Relayers should poll this endpoint frequently and respond to any requests within their supported routes by submitting a quote via [`PUT /quotes`](/api-reference/rfq-quotes).
+
+```
+GET https://api.synapseprotocol.com/open_quote_requests
+```
+
+## Query parameters
+
+This endpoint takes no query parameters. It returns all open requests across all chains and token pairs.
+
+## Response fields
+
+An array of open quote request objects.
+
+<ResponseField name="origin_chain_id" type="integer">
+  Chain ID where the user's tokens originate.
+</ResponseField>
+
+<ResponseField name="origin_token" type="string">
+  Contract address of the token the user is sending on the origin chain.
+</ResponseField>
+
+<ResponseField name="origin_amount" type="string">
+  Amount of the origin token the user wants to bridge, in the token's native decimals.
+</ResponseField>
+
+<ResponseField name="dest_chain_id" type="integer">
+  Chain ID where the user wants to receive tokens.
+</ResponseField>
+
+<ResponseField name="dest_token" type="string">
+  Contract address of the token the user wants to receive on the destination chain.
+</ResponseField>
+
+<ResponseField name="user_address" type="string">
+  Ethereum address of the user who initiated this quote request.
+</ResponseField>
+
+<ResponseField name="expiration_window" type="integer">
+  Number of seconds the relayer has to fulfill this request before it expires.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 timestamp of when the request was created.
+</ResponseField>
+
+## Example request
+
+```bash
+curl "https://api.synapseprotocol.com/open_quote_requests"
+```
+
+## Example response
+
+```json
+[
+  {
+    "origin_chain_id": 1,
+    "origin_token": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+    "origin_amount": "1000000000",
+    "dest_chain_id": 42161,
+    "dest_token": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+    "user_address": "0xUserWalletAddress",
+    "expiration_window": 30,
+    "created_at": "2024-09-01T17:00:00Z"
+  },
+  {
+    "origin_chain_id": 10,
+    "origin_token": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+    "origin_amount": "500000000",
+    "dest_chain_id": 8453,
+    "dest_token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    "user_address": "0xAnotherUserAddress",
+    "expiration_window": 30,
+    "created_at": "2024-09-01T17:00:05Z"
+  }
+]
+```
+
+<Note>
+  Relayers should respond to open requests within the `expiration_window` seconds. After that window expires, the request may be fulfilled by a passive (non-active-RFQ) quote from the [`GET /quotes`](/api-reference/rfq-quotes) pool instead.
+</Note>
+
+## Relayer workflow
+
+A typical relayer integration polls this endpoint on a short interval and processes each open request:
+
+```javascript
+async function processOpenRequests() {
+  const requests = await fetch('https://api.synapseprotocol.com/open_quote_requests')
+    .then(r => r.json());
+
+  for (const req of requests) {
+    if (canFulfill(req)) {
+      await submitQuote(req);
+    }
+  }
+}
+
+// Poll every 2 seconds
+setInterval(processOpenRequests, 2000);
+```

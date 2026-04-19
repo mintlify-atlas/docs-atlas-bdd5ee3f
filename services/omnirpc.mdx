@@ -1,0 +1,181 @@
+---
+title: 'OmniRPC — Latency-Aware Multi-Provider RPC Balancer'
+description: 'OmniRPC fans out RPC calls across multiple providers and verifies that N of them agree before forwarding the response, reducing trust in any single RPC node.'
+---
+
+OmniRPC is a latency-aware RPC load balancer designed to reduce trust in any single RPC provider. For every JSON-RPC method that returns a deterministic result, OmniRPC fans the request out to multiple providers, compares the responses, and only returns a result once the configured number of providers agree. This makes it a safe, embeddable building block for Synapse's off-chain agents while remaining useful as a general-purpose proxy.
+
+<CardGroup cols={2}>
+  <Card title="Multi-provider verification" icon="shield-check">
+    Responses are cross-checked across N providers. A result is only forwarded when `confirmations` providers agree on the same JSON hash.
+  </Card>
+  <Card title="Latency-aware routing" icon="gauge-high">
+    Provider latency is sampled at a configurable interval so the fastest healthy nodes are preferred on every request.
+  </Card>
+  <Card title="Chainlist mode" icon="list">
+    Run against every public RPC on Chainlist instantly without writing a config file.
+  </Card>
+  <Card title="Embeddable client" icon="puzzle-piece">
+    OmniRPC ships as a Go library so agents can embed it directly and skip the network hop.
+  </Card>
+</CardGroup>
+
+## Configuration
+
+OmniRPC is configured with a single YAML file. The top-level keys control the server port and the latency-refresh cadence; each chain entry maps a chain ID to a list of RPC URLs and a confirmation threshold.
+
+```yaml
+chains:
+  1:
+    rpcs:
+      - https://api.mycryptoapi.com/eth
+      - https://rpc.flashbots.net/
+      - https://eth-mainnet.gateway.pokt.network/v1/5f3453978e354ab992c4da79
+      - https://cloudflare-eth.com/
+      - https://mainnet-nethermind.blockscout.com/
+      - https://nodes.mewapi.io/rpc/eth
+      - https://main-rpc.linkpool.io/
+      - https://mainnet.eth.cloud.ava.do/
+      - https://ethereumnodelight.app.runonflux.io
+      - https://rpc.ankr.com/eth
+      - https://eth-rpc.gateway.pokt.network
+      - https://main-light.eth.linkpool.io
+      - https://ethereum-mainnet.core.chainstack.com
+      - http://18.211.207.34:8545
+      - https://eth-mainnet.nodereal.io/v1/1659dfb40aa24bbb8153a677b98064d7
+      - wss://eth-mainnet.nodereal.io/ws/v1/1659dfb40aa24bbb8153a677b98064d7
+    confirmations: 5
+# port to run on
+port: 5000
+# expressed in seconds
+refresh_interval: 60
+```
+
+<Tip>
+  The example above configures Ethereum mainnet with 16 providers and requires 5 of them to agree before returning a response. Increase `confirmations` for higher security or decrease it to trade some safety for lower latency.
+</Tip>
+
+### Config fields
+
+| Field | Type | Description |
+|---|---|---|
+| `chains` | map | Map of chain ID → `ChainConfig`. |
+| `chains.<id>.rpcs` | list | RPC URLs (HTTP or WebSocket) for this chain. |
+| `chains.<id>.confirmations` | integer | Number of providers that must return the same result. |
+| `port` | integer | Port for the HTTP server. |
+| `refresh_interval` | integer | Seconds between latency-refresh sweeps of all providers. |
+| `client_type` | string | Client backend type (optional). |
+
+## Running OmniRPC
+
+<Steps>
+  <Step title="Build or install the binary">
+    ```bash
+    go run main.go
+    ```
+  </Step>
+  <Step title="Point it at your config">
+    Pass the path to your YAML config file when starting the server. The server exposes routes on the configured `port`.
+  </Step>
+  <Step title="Optional: chainlist mode">
+    Skip writing a config and start against all public Chainlist RPCs with a confirmation threshold of 1:
+
+    ```bash
+    ./omnirpc chainlist-server
+    ```
+  </Step>
+</Steps>
+
+## API endpoints
+
+### Proxied RPC call
+
+```
+POST /rpc/{chainId}
+```
+
+Forwards a standard JSON-RPC payload to the providers configured for `chainId`. If the method is confirmable (see below), the request is verified across `confirmations` providers before responding.
+
+```bash
+curl --location --request POST 'http://localhost:5000/rpc/1' \
+  --header 'Content-Type: application/json' \
+  --data-raw '{
+    "jsonrpc": "2.0",
+    "method": "eth_getTransactionCount",
+    "params": [
+      "0x230a1ac45690b9ae1176389434610b9526d2f21b",
+      "0xec1d40"
+    ],
+    "id": 1
+  }'
+```
+
+### Custom confirmation count
+
+```
+GET /confirmations/{n}/rpc/{chainId}
+```
+
+Override the confirmation threshold for a single request. For example, to require only 2 confirmations on Ethereum mainnet:
+
+```bash
+curl 'http://localhost:5000/confirmations/2/rpc/1'
+```
+
+## Response headers
+
+Every response from OmniRPC includes diagnostic headers you can use to inspect how the request was handled.
+
+| Header | Description |
+|---|---|
+| `X-Checked-URLS` | Comma-separated list of providers the response was verified against. |
+| `X-Confirmable` | `true` if the method is eligible for multi-provider verification. |
+| `X-Forwarded-From` | The provider URL that the forwarded response actually came from. |
+| `X-Json-Hash` | SHA-256 hash of the minified JSON response used for comparison. |
+| `X-Request-Id` | Random UUID for tracing (echoed from the request if provided). |
+| `X-Required-Confirmations` | Number of confirmations the request was checked against; always `1` for non-confirmable methods. |
+
+## Confirmable methods
+
+OmniRPC can only verify responses for methods whose output is deterministic with respect to a specific block. Methods that depend on chain tip state are forwarded to a single provider.
+
+<Tabs>
+  <Tab title="Confirmable">
+    These methods are verified across N providers when a specific block reference (not `latest` or `pending`) is passed:
+
+    - `eth_getBlockByNumber`
+    - `eth_getBlockTransactionCountByNumber`
+    - `eth_getBalance`
+    - `eth_getCode`
+    - `eth_getTransactionCount`
+    - `eth_call`
+    - `eth_getStorageAt`
+    - `eth_getLogs`
+
+    <Note>
+      Requests that pass `latest` or `pending` as the block parameter are treated as non-confirmable because different providers may be at different chain tips, which would cause false mismatches.
+    </Note>
+  </Tab>
+  <Tab title="Never confirmable">
+    These methods are always forwarded to a single provider without cross-checking:
+
+    - `eth_blockNumber`
+    - `eth_syncing`
+    - `eth_gasPrice`
+    - `eth_maxPriorityFeePerGas`
+    - `eth_estimateGas`
+    - `eth_sendRawTransaction` — the transaction may not be pending on all nodes yet.
+  </Tab>
+</Tabs>
+
+## Helm chart
+
+OmniRPC ships with a Helm chart for Kubernetes deployments located at `charts/omnirpc` in the monorepo.
+
+```bash
+helm install omnirpc ./charts/omnirpc -f values.yaml
+```
+
+<Note>
+  The Scribe Helm chart at `charts/scribe` lists OmniRPC as an optional dependency and can deploy both services together. See [Scribe](/services/scribe) for details.
+</Note>

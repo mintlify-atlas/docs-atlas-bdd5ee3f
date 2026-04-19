@@ -1,0 +1,109 @@
+---
+title: "Bridge transaction status: GET /bridgeTxStatus"
+description: "GET /bridgeTxStatus polls bridge completion. Pass destChainId, bridgeModule, and synapseTxId. Returns a boolean status and destination transaction details."
+---
+
+After a user submits a bridge transaction, use `GET /bridgeTxStatus` to track whether it has been completed on the destination chain. The endpoint requires the Synapse transaction ID (not the origin chain transaction hash), the destination chain ID, and the bridge module used. When the bridge is complete, the response also includes the destination transaction hash, token symbol, USD value, and formatted timestamps.
+
+To convert an origin chain transaction hash into a `synapseTxId`, see [`GET /synapseTxId`](/api-reference/bridge-tx-status) or derive it from the event logs emitted by the bridge contract on the origin chain.
+
+```
+GET https://api.synapseprotocol.com/bridgeTxStatus
+```
+
+## Query parameters
+
+<ParamField query="destChainId" type="integer" required>
+  Chain ID of the destination chain where the bridge is expected to complete.
+</ParamField>
+
+<ParamField query="bridgeModule" type="string" required>
+  The bridge module that processed the transaction. Must be one of:
+  - `SynapseBridge`
+  - `SynapseCCTP`
+  - `SynapseRFQ`
+</ParamField>
+
+<ParamField query="synapseTxId" type="string" required>
+  The Synapse internal transaction identifier. This is different from the on-chain transaction hash and is emitted as an event by the bridge contract.
+</ParamField>
+
+## Response fields
+
+<ResponseField name="status" type="boolean">
+  `true` when the bridge transaction has been finalized on the destination chain; `false` when it is still pending.
+</ResponseField>
+
+<ResponseField name="toInfo" type="object">
+  Destination chain transaction details. Present when `status` is `true`.
+
+  <Expandable title="toInfo fields">
+    <ResponseField name="chainID" type="integer">
+      Chain ID of the destination chain.
+    </ResponseField>
+    <ResponseField name="address" type="string">
+      Address of the recipient on the destination chain.
+    </ResponseField>
+    <ResponseField name="txnHash" type="string">
+      Transaction hash of the completed bridge on the destination chain.
+    </ResponseField>
+    <ResponseField name="USDValue" type="number">
+      USD value of the transferred amount at the time of completion.
+    </ResponseField>
+    <ResponseField name="tokenSymbol" type="string">
+      Symbol of the token received (e.g. `"USDC"`).
+    </ResponseField>
+    <ResponseField name="formattedTime" type="string">
+      Human-readable UTC timestamp of the destination transaction (e.g. `"2024-09-01 17:10:41 +0000 UTC"`).
+    </ResponseField>
+    <ResponseField name="formattedValue" type="string">
+      Human-readable token amount received (e.g. `"1.797684"`).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example request
+
+```bash
+curl "https://api.synapseprotocol.com/bridgeTxStatus\
+?destChainId=10\
+&bridgeModule=SynapseRFQ\
+&synapseTxId=0x812516c5477aeeb4361ecbdd561abcd10f779a0fce22bad13635b8cae088760a"
+```
+
+## Example response (completed)
+
+```json
+{
+  "status": true,
+  "toInfo": {
+    "chainID": 10,
+    "address": "0xRL3Bab0e4c09Ff447863f507E16090A9F22792d2",
+    "txnHash": "0x4eff784e85df5265dcc8e3c30b9df4b5c8a0c940300f6d8ad7ed737e9beb6fab",
+    "USDValue": 1.79848,
+    "tokenSymbol": "USDC",
+    "formattedTime": "2024-09-01 17:10:41 +0000 UTC",
+    "formattedValue": "1.797684"
+  }
+}
+```
+
+## Example response (pending)
+
+```json
+{
+  "status": false
+}
+```
+
+## Polling guidance
+
+Bridge finality time varies by module:
+
+| Module | Typical time |
+|--------|-------------|
+| `SynapseRFQ` | ~30 seconds |
+| `SynapseCCTP` | ~5–20 minutes |
+| `SynapseBridge` | ~10–20 minutes |
+
+Poll at a reasonable interval (e.g. every 15 seconds) and stop once `status` is `true` or after a reasonable timeout. Avoid polling more frequently than every 10 seconds to stay within rate limits.

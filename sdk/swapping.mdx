@@ -1,0 +1,185 @@
+---
+title: "On-Chain Token Swapping with the Synapse Bridge SDK"
+description: "Get swap quotes and execute same-chain token swaps through Synapse routers using swapQuote() and swap(), with optional slippage and deadline controls."
+---
+
+On-chain swaps exchange one token for another on the same chain using liquidity pools managed by the Synapse protocol. The SDK provides two methods for swapping: `swapQuote()` to get a price estimate and `swap()` to build the transaction payload. A newer `swapV2()` method is also available for chains that support Synapse Intents.
+
+## Getting a swap quote
+
+`swapQuote()` returns the expected output amount and a `Query` object that encodes the route. The `Query` must be passed unmodified (after optionally applying slippage or a deadline) to `swap()`.
+
+```typescript
+import { SynapseSDK, SwapQuote } from '@synapsecns/sdk-router'
+import { BigNumber } from '@ethersproject/bignumber'
+
+const chainId = 42161  // Arbitrum
+
+// USDC on Arbitrum
+const tokenIn  = '0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8'
+// USDT on Arbitrum
+const tokenOut = '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9'
+// 500 USDC (6 decimals)
+const amountIn = BigNumber.from('500000000')
+
+const quote: SwapQuote = await synapseSDK.swapQuote(
+  chainId,
+  tokenIn,
+  tokenOut,
+  amountIn
+)
+
+console.log('Router:', quote.routerAddress)
+console.log('Max out:', quote.maxAmountOut.toString())
+```
+
+The `SwapQuote` type contains:
+
+```typescript
+type SwapQuote = {
+  routerAddress: string   // Router contract to approve and call
+  maxAmountOut: BigNumber // Expected output amount in token decimals
+  query: Query            // Route details — pass this to swap()
+}
+```
+
+<Note>
+  `swapQuote()` throws `'No queries found for this route'` if no swap path exists between the two tokens on the given chain.
+</Note>
+
+## Applying slippage and deadline
+
+Before building the swap transaction, apply slippage to protect against price movement. The default is 10 basis points (0.1%).
+
+```typescript
+const queryWithSlippage = synapseSDK.applySwapSlippage(
+  quote.query,
+  // Optional: numerator (defaults to 10)
+  slipNumerator,
+  // Optional: denominator (defaults to 10000)
+  slipDenominator
+)
+```
+
+You can also set a custom deadline. If omitted, the SDK defaults to 10 minutes from the time the quote was fetched.
+
+```typescript
+const queryWithDeadline = synapseSDK.applySwapDeadline(
+  queryWithSlippage,
+  // Optional: BigNumber deadline in Unix seconds
+  deadline
+)
+```
+
+Both methods return new `Query` objects without mutating the original.
+
+## Executing a swap
+
+Pass the quote's `query` (with slippage applied) to `swap()` to get the populated transaction payload:
+
+```typescript
+import { PopulatedTransaction } from '@ethersproject/contracts'
+
+const populatedTx: PopulatedTransaction = await synapseSDK.swap(
+  chainId,
+  recipientAddress,  // address that receives the output tokens
+  tokenIn,
+  amountIn,
+  queryWithSlippage  // query from swapQuote() with slippage applied
+)
+
+// Submit with an ethers.js Signer
+const tx = await signer.sendTransaction(populatedTx)
+await tx.wait()
+```
+
+<Info>
+  `swap()` returns a transaction payload — it does not submit the transaction. Use a signer to send it. The user must approve `routerAddress` to spend `amountIn` of `tokenIn` before calling `swap()`.
+</Info>
+
+## Swap workflow
+
+<Steps>
+  <Step title="Call swapQuote()">
+    Provide the chain ID, input token, output token, and amount. Receive a `SwapQuote` with the router address and expected output.
+  </Step>
+  <Step title="Apply slippage">
+    Call `applySwapSlippage()` on the returned `query` to set a minimum acceptable output amount. Default slippage is 0.1%.
+  </Step>
+  <Step title="Approve token spend">
+    Ensure the user has approved `quote.routerAddress` to spend `amountIn` of `tokenIn`. ERC-20 approval is required before calling `swap()`.
+  </Step>
+  <Step title="Build the transaction">
+    Call `swap()` with the chain ID, recipient, token, amount, and slippage-adjusted query.
+  </Step>
+  <Step title="Submit with a signer">
+    Send the populated transaction using an ethers.js `Signer` or equivalent.
+  </Step>
+</Steps>
+
+## swapV2 (Synapse Intents)
+
+`swapV2()` uses the Synapse Intent Router on chains where intents are supported. It accepts a parameter object and can optionally return a pre-populated transaction when a sender address is provided.
+
+```typescript
+import { SwapV2Parameters, SwapQuoteV2 } from '@synapsecns/sdk-router'
+
+const params: SwapV2Parameters = {
+  chainId: 42161,
+  fromToken: '0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8',
+  fromAmount: '500000000',
+  toToken: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
+  // Providing toRecipient causes the SDK to populate the transaction
+  toRecipient: '0xYourRecipientAddress',
+  slippagePercentage: 0.5,
+}
+
+const quoteV2: SwapQuoteV2 = await synapseSDK.swapV2(params)
+```
+
+The `SwapQuoteV2` type includes:
+
+```typescript
+type SwapQuoteV2 = {
+  id: string               // Unique quote identifier
+  chainId: number
+  fromToken: string
+  fromAmount: string
+  toToken: string
+  expectedToAmount: string // Expected output (no slippage)
+  minToAmount: string      // Minimum output (slippage applied)
+  routerAddress: string
+  estimatedTime: number    // Estimated time in seconds
+  moduleNames: string[]    // Swap engines used
+  tx?: PopulatedTx         // Pre-populated tx (only when toRecipient is set)
+}
+```
+
+<Warning>
+  `swapV2()` returns an empty quote (with `expectedToAmount: '0'`) if the chain does not support Synapse Intents or if `fromToken` and `toToken` are the same address.
+</Warning>
+
+## Native token addresses
+
+Use the sentinel address for native gas tokens (ETH, AVAX, MATIC, etc.):
+
+```typescript
+const NATIVE_TOKEN_ADDRESS = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'
+```
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="SDK quickstart" icon="bolt" href="/sdk/quickstart">
+    Install the SDK and initialize it with providers.
+  </Card>
+  <Card title="Cross-chain bridging" icon="arrow-right-arrow-left" href="/sdk/bridging">
+    Move tokens across chains with allBridgeQuotes() and bridge().
+  </Card>
+  <Card title="Bridge Widget" icon="browser" href="/sdk/bridge-widget">
+    Embed a no-config bridge UI in your React application.
+  </Card>
+  <Card title="REST API overview" icon="server" href="/rest-api/overview">
+    Access swap quotes via HTTP without the SDK.
+  </Card>
+</CardGroup>

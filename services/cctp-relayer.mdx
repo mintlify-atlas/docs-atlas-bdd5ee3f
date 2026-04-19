@@ -1,0 +1,110 @@
+---
+title: 'CCTP Relayer — Permissionless Cross-Chain USDC Transfers'
+description: 'The CCTP Relayer watches CCTP events, fetches Circle attestations, and submits mint transactions on the destination chain for slippage-free USDC transfers.'
+---
+
+The CCTP Relayer is an off-chain service that automates the full lifecycle of a cross-chain USDC transfer using Circle's Cross-Chain Transfer Protocol. It monitors CCTP contract events on each configured source chain, requests an attestation from the Circle API, and submits the mint transaction on the destination chain — all without requiring any privileged role. Because Circle's CCTP burns and mints USDC natively, transfers are slippage-free.
+
+<CardGroup cols={2}>
+  <Card title="Permissionless relaying" icon="circle-nodes">
+    Any operator can run the relayer. No special on-chain permissions are required to fetch attestations or submit mint transactions.
+  </Card>
+  <Card title="Slippage-free USDC" icon="dollar-sign">
+    Circle's CCTP burns USDC on the origin chain and mints it on the destination chain, eliminating pool slippage entirely.
+  </Card>
+  <Card title="Two CCTP modes" icon="toggle-on">
+    Supports both the Synapse CCTP contract (`synapse`) and Circle's native `TokenMessenger` contract (`circle`) via the `cctp_type` config field.
+  </Card>
+  <Card title="Configurable retry logic" icon="rotate">
+    `retry_interval_ms` and `http_backoff_max_elapsed_time_ms` control how long the relayer retries attestation requests before giving up.
+  </Card>
+</CardGroup>
+
+## How it works
+
+<Steps>
+  <Step title="Listen for CCTP events">
+    The relayer subscribes to each chain's CCTP contract (either `SynapseCCTP` or `TokenMessenger` depending on `cctp_type`). It starts listening from the block number specified by `cctp_start_block` for each chain.
+  </Step>
+  <Step title="Request a Circle attestation">
+    When a burn event is detected, the relayer calls the Circle API at `circle_api_url` to retrieve the signed attestation for that burn message. It retries on failure using the configured backoff parameters.
+  </Step>
+  <Step title="Submit the mint transaction">
+    Once the attestation is in hand, the relayer submits the corresponding `receiveMessage` transaction on the destination chain using the configured signer. Transaction submission is handled by the shared `submitter_config` infrastructure.
+  </Step>
+</Steps>
+
+## Running the CCTP Relayer
+
+```bash
+go run main.go
+```
+
+The process reads the config file path from its arguments or environment and runs until interrupted.
+
+## Configuration
+
+The relayer is configured with a YAML file. All fields map directly to the `Config` struct in `services/cctp-relayer/config/config.go`.
+
+```yaml
+port: 8080
+host: "0.0.0.0"
+circle_api_url: "https://iris-api.circle.com"
+cctp_type: "synapse"           # "synapse" or "circle"
+base_omnirpc_url: "https://your-omnirpc-url/"
+retry_interval_ms: 2000
+http_backoff_max_elapsed_time_ms: 300000
+screener_api_url: "https://screener-url"
+unbonded_signer:
+  type: File
+  file: /path/to/keyfile
+chains:
+  - chain_id: 1
+    cctp_address: "0xYourSynapseCCTPOrTokenMessengerAddress"
+    cctp_start_block: 18000000
+  - chain_id: 42161
+    cctp_address: "0xYourSynapseCCTPOrTokenMessengerAddress"
+    cctp_start_block: 140000000
+submitter_config: {}
+```
+
+### Config fields
+
+<AccordionGroup>
+  <Accordion title="Top-level fields">
+    | Field | Description |
+    |---|---|
+    | `port` | Port for the relayer API server. |
+    | `host` | Host for the relayer API server. |
+    | `circle_api_url` | URL for the Circle attestation API. |
+    | `cctp_type` | CCTP execution mode: `synapse` (uses `SynapseCCTP` contract) or `circle` (uses `TokenMessenger`). Defaults to `synapse`. |
+    | `base_omnirpc_url` | Base URL for the OmniRPC instance used for all chain RPC calls. |
+    | `retry_interval_ms` | Milliseconds between attestation request retries. |
+    | `http_backoff_max_elapsed_time_ms` | Maximum total milliseconds to spend retrying attestation requests before failing. |
+    | `screener_api_url` | URL of the TRM screening API for address sanctions checks. |
+    | `unbonded_signer` | Signer config for the key used to submit transactions. |
+    | `submitter_config` | Config for the transaction submitter (gas strategies, nonce management, etc.). |
+  </Accordion>
+  <Accordion title="Chain fields (`chains[]`)">
+    | Field | Description |
+    |---|---|
+    | `chain_id` | EVM chain ID. Each chain ID may only appear once. |
+    | `cctp_address` | Address of the CCTP contract to monitor on this chain (`SynapseCCTP` or `TokenMessenger` depending on `cctp_type`). |
+    | `cctp_start_block` | Block number at which the chain listener starts scanning for CCTP events. |
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+  `cctp_address` must be a valid hex address. If it is empty or malformed the relayer will fail config validation and refuse to start.
+</Warning>
+
+<Note>
+  The relayer requires a running [OmniRPC](/services/omnirpc) instance. Set `base_omnirpc_url` to point at it. OmniRPC handles multi-provider verification so the relayer does not trust any single RPC node.
+</Note>
+
+## CCTP type reference
+
+| `cctp_type` value | Contract used | Use case |
+|---|---|---|
+| `synapse` (default) | `SynapseCCTP` | Synapse-wrapped CCTP transfers with additional protocol features. |
+| `circle` | `TokenMessenger` | Native Circle CCTP transfers without the Synapse wrapper. |

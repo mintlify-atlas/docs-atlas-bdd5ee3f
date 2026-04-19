@@ -1,0 +1,206 @@
+---
+title: 'RFQ Relayer and Guard — Intent-Based Fast Bridge'
+description: 'The RFQ relayer commits capital to fill FastBridge requests. The guard monitors for invalid relays and disputes, running embedded in the relayer or standalone.'
+---
+
+The RFQ (Request-for-Quote) service provides intent-based cross-chain bridging through two cooperating binaries: the **relayer** and the **guard**. Relayers receive bridge requests emitted by the `FastBridge` contract, commit liquidity, relay tokens to the destination chain, and then claim their funds on the origin chain after a short delay. The guard runs in parallel to monitor for disputes, conflicting proofs, and invalid relay attempts. Together they form the off-chain half of the RFQ bridging system.
+
+<CardGroup cols={2}>
+  <Card title="Relayer" icon="arrow-right-arrow-left">
+    Listens to the `FastBridge` contract for `BridgeRequested` events, validates quotes, commits inventory, relays to the destination, and claims on the origin chain.
+  </Card>
+  <Card title="Guard" icon="shield">
+    Monitors submitted proofs for disputes or invalidity and intervenes on-chain when a relay does not match the original bridge request.
+  </Card>
+  <Card title="Continuous quote posting" icon="chart-line">
+    The relayer continuously publishes its available balances as quotes to the RFQ API so clients always see current liquidity.
+  </Card>
+  <Card title="Embedded guard" icon="toggle-on">
+    Set `enable_guard: true` in the relayer config to run the guard inside the same process without a separate deployment.
+  </Card>
+</CardGroup>
+
+## How the relayer works
+
+The relayer runs two concurrent loops that together handle the full bridge lifecycle.
+
+<AccordionGroup>
+  <Accordion title="Chain parser loop">
+    Listens for `BridgeRequested` events from the `FastBridge` contract on each configured chain. When an event is detected it is written to the database with status `Seen` for the DB processor to pick up.
+  </Accordion>
+  <Accordion title="DB processor loop">
+    Polls the database for records in non-terminal states and advances them through the following lifecycle:
+
+    1. **`Seen`** — validates the request with the quoter and checks inventory. If either check fails the record is marked `WillNotProcess` or `NotEnoughInventory`.
+    2. **`CommittedPending`** — liquidity is committed; the relayer waits for the origin transaction to finalize.
+    3. **`CommitConfirmed`** — origin transaction is finalized; the relayer submits the relay on the destination chain.
+    4. **`RelayPending`** → **`RelayComplete`** — relay is submitted; the relayer listens for the relay log.
+    5. **`ProvePosting`** → **`ProofPosted`** — `Prove()` is called on the contract and confirmed.
+    6. **`ClaimPending`** → **`ClaimComplete`** — the claim period expires and the relayer reclaims funds on the origin chain.
+  </Accordion>
+  <Accordion title="Quote posting loop">
+    Continuously fetches on-chain balances, subtracts open commitments, and posts the resulting available liquidity as quotes to the RFQ API (`rfq_url`). A `FixedFee` parameter in the quoter accounts for gas costs on both origin and destination chains.
+  </Accordion>
+</AccordionGroup>
+
+## Running the services
+
+<Tabs>
+  <Tab title="Relayer">
+    ```bash
+    go run main.go
+    ```
+
+    The relayer reads its config from the path provided as an argument and connects to the configured OmniRPC instance and RFQ API.
+  </Tab>
+  <Tab title="Guard (standalone)">
+    The guard has its own binary in `services/rfq/guard/`:
+
+    ```bash
+    go run main.go
+    ```
+
+    Provide a guard config file. You can generate a guard config automatically from a relayer config using `guardconfig.NewGuardConfigFromRelayer`.
+  </Tab>
+  <Tab title="Guard (embedded)">
+    Add `enable_guard: true` to your relayer config file to run the guard inside the relayer process:
+
+    ```yaml
+    enable_guard: true
+    ```
+  </Tab>
+</Tabs>
+
+## Relayer configuration
+
+The relayer config is a YAML file based on the `Config` struct in `services/rfq/relayer/relconfig/config.go`. The sample config at `services/rfq/config.yml` is a good starting point for local development.
+
+```yaml
+rfq_url: 'http://localhost:8080'
+omnirpc_url: 'https://rpc.interop-staging.com'
+database:
+  type: 'sqlite'      # use 'mysql' for production
+  dsn: '/tmp/relayer'
+signer:
+  type: File
+  file: /tmp/test-signer
+tokens:
+  421614:
+    - '0x858355dAe73bc0FA4AB220e5296cfAa77e99900e'
+  11155111:
+    - '0x858355dAe73bc0FA4AB220e5296cfAa77e99900e'
+bridges:
+  421614:
+    address: '0x58dBd847C0CBFc9a4B9942847124BFC3589c70aA'
+  11155111:
+    address: '0x6EBdE77d635496Dea99364E0DA18ad8A1AFA9F27'
+quotable_tokens:
+  421614-0x858355dAe73bc0FA4AB220e5296cfAa77e99900e:
+    - 11155111-0x858355dAe73bc0FA4AB220e5296cfAa77e99900e
+  11155111-0x858355dAe73bc0FA4AB220e5296cfAa77e99900e:
+    - 421614-0x858355dAe73bc0FA4AB220e5296cfAa77e99900e
+```
+
+### Relayer config fields
+
+<AccordionGroup>
+  <Accordion title="Top-level fields">
+    | Field | Description |
+    |---|---|
+    | `omnirpc_url` | URL of the OmniRPC instance used for all chain RPC calls. |
+    | `rfq_url` | URL of the RFQ API where the relayer posts quotes. |
+    | `relayer_api_port` | Port for the relayer's own REST API. |
+    | `database.type` | `sqlite` or `mysql`. |
+    | `database.dsn` | File path (SQLite) or connection string (MySQL). |
+    | `quotable_tokens` | Map of `chainID-tokenAddress` to list of `chainID-tokenAddress` pairs the relayer will quote for. Token IDs use the format `<chainID>-<checksummedAddress>`. |
+    | `signer` | Signer config for the key used to submit transactions. |
+    | `submitter_config` | Gas strategy and nonce-management config. |
+    | `enable_guard` | Run the guard embedded inside the relayer process. |
+    | `enable_api_withdrawals` | Expose the `POST /withdraw` endpoint on the relayer API. |
+    | `withdrawal_whitelist` | List of addresses that may receive withdrawals via the API. |
+    | `volume_limit` | Maximum dollar value of relayed transactions within the block window. |
+    | `db_selector_interval` | Interval for the DB processor polling loop. |
+    | `rebalance_interval` | Interval for inventory rebalancing. |
+    | `quote_submission_timeout` | Timeout for posting a quote to the RFQ API. |
+    | `support_active_quoting` | Enable active quoting mode. |
+  </Accordion>
+  <Accordion title="Per-chain fields (`chains.<id>`)">
+    | Field | Description |
+    |---|---|
+    | `rfq_address` | Address of the `FastBridge` contract on this chain. |
+    | `confirmations` | Block confirmations required before processing a quote. |
+    | `prove_confirmations` | Block confirmations required before calling `Prove()`. |
+    | `native_token` | Native gas token symbol for this chain. |
+    | `deadline_buffer_seconds` | Buffer added to the relay deadline to account for block time variance. |
+    | `origin_gas_estimate` | Override for origin-chain gas estimate. |
+    | `dest_gas_estimate` | Override for destination-chain gas estimate. |
+    | `l1_fee_chain_id` | Chain ID used for L1 fee calculation (e.g., Optimism). |
+    | `quote_pct` | Fraction of balance to offer in quotes (0–100). |
+    | `min_gas_token` | Minimum gas token balance to retain after bridging. |
+  </Accordion>
+  <Accordion title="Per-token fields (`chains.<id>.tokens.<name>`)">
+    | Field | Description |
+    |---|---|
+    | `address` | ERC-20 token contract address. |
+    | `decimals` | Token decimals — validated against the live contract on startup. |
+    | `price_usd` | USD price used for fee calculations. |
+    | `min_quote_amount` | Minimum human-readable amount to include in a quote. |
+    | `max_relay_amount` | Maximum human-readable amount the relayer will relay in a single transaction. |
+    | `rebalance_methods` | Supported rebalancing mechanisms (e.g., `synapse`, `circle`, `scroll`). |
+    | `maintenance_balance_pct` | Balance percentage below which a rebalance is triggered. |
+    | `initial_balance_pct` | Target balance percentage after a rebalance. |
+    | `quote_offset_bps` | Basis points to add or subtract from the quoted destination amount. |
+    | `quote_width_bps` | Basis points deducted from the quoted destination amount (must be positive). |
+  </Accordion>
+</AccordionGroup>
+
+## Guard configuration
+
+The guard config is a subset of the relayer config. Fields that are not relevant to monitoring (such as quote posting) are omitted.
+
+```yaml
+omnirpc_url: 'https://rpc.interop-staging.com'
+database:
+  type: 'sqlite'
+  dsn: '/tmp/guard'
+signer:
+  type: File
+  file: /tmp/guard-signer
+chains:
+  1:
+    rfq_address: '0xYourFastBridgeAddress'
+    confirmations: 20
+  42161:
+    rfq_address: '0xYourFastBridgeAddress'
+    confirmations: 20
+```
+
+| Field | Description |
+|---|---|
+| `omnirpc_url` | OmniRPC URL for chain RPC calls. |
+| `database` | Same `type` / `dsn` structure as the relayer. |
+| `signer` | Signer used to submit dispute transactions. |
+| `chains.<id>.rfq_address` | `FastBridge` contract address on this chain. |
+| `chains.<id>.confirmations` | Finality confirmations before the guard acts on a proof. |
+| `db_selector_interval` | Interval for the guard's DB polling loop. |
+
+## Relayer REST API
+
+The relayer exposes a small REST API on `relayer_api_port` for monitoring and operations.
+
+| Method | Route | Description |
+|---|---|---|
+| `GET` | `/health` | Returns `{"status": "ok"}` when the server is running. |
+| `GET` | `/retry?hash=<originTxHash>` | Retries a relay for the given origin transaction hash. |
+| `GET` | `/request/by_tx_id?id=<txID>` | Fetches a quote request by its 32-byte transaction ID. |
+| `GET` | `/request/by_tx_hash?hash=<hash>` | Fetches a quote request by origin transaction hash. |
+| `POST` | `/withdraw` | Withdraws tokens from the relayer (requires `enable_api_withdrawals: true`). |
+| `GET` | `/tx_hash/by_nonce?chain_id=<id>&nonce=<n>` | Looks up a submitted transaction hash by submitter nonce (requires `enable_api_withdrawals: true`). |
+
+<Tip>
+  The `/retry` endpoint is useful during incidents when a relay transaction was dropped or underpriced. Calling it re-submits the relay with fresh gas estimation.
+</Tip>
+
+<Note>
+  For the public RFQ API endpoints that clients use to fetch and submit quotes, see [RFQ Endpoints](/rest-api/rfq-endpoints).
+</Note>
